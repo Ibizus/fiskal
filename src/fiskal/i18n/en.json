@@ -1,0 +1,22 @@
+{
+  "app.title": "Fiskal",
+  "app.tagline": "Local-first personal finance",
+  "category.income": "Income",
+  "category.housing": "Housing",
+  "category.utilities": "Utilities",
+  "category.food": "Food",
+  "category.transport": "Transport",
+  "category.healthcare": "Healthcare",
+  "category.education": "Education",
+  "category.entertainment": "Entertainment",
+  "category.shopping": "Shopping",
+  "category.savings": "Savings",
+  "category.taxes": "Taxes",
+  "category.misc": "Miscellaneous",
+  "costcenter.personal": "Personal",
+  "costcenter.household": "Household",
+  "costcenter.work": "Work",
+  "ui.welcome": "Welcome",
+  "ui.loading": "Loading...",
+  "ui.no_data": "No data to display"
+}

@@ -1,0 +1,40 @@
+repos:
+  - repo: local
+    hooks:
+      - id: guard-personal-data
+        name: personal data guard
+        entry: uv run python scripts/guard_personal_data.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff-format
+        args: [--check]
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: local
+    hooks:
+      - id: mypy-strict
+        name: mypy strict on core packages
+        entry: uv run mypy --strict src/fiskal/domain src/fiskal/classification src/fiskal/importers
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest with coverage
+        entry: uv run pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: alembic-check
+        name: alembic migration check
+        entry: bash -c 'uv run alembic -c migrations/alembic.ini upgrade head && uv run alembic -c migrations/alembic.ini check'
+        language: system
+        pass_filenames: false
+        always_run: true

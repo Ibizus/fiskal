@@ -1,0 +1,22 @@
+{
+  "app.title": "Fiskal",
+  "app.tagline": "Finanzas personales locales",
+  "category.income": "Ingresos",
+  "category.housing": "Vivienda",
+  "category.utilities": "Servicios",
+  "category.food": "Alimentación",
+  "category.transport": "Transporte",
+  "category.healthcare": "Salud",
+  "category.education": "Educación",
+  "category.entertainment": "Ocio",
+  "category.shopping": "Compras",
+  "category.savings": "Ahorro",
+  "category.taxes": "Impuestos",
+  "category.misc": "Varios",
+  "costcenter.personal": "Personal",
+  "costcenter.household": "Hogar",
+  "costcenter.work": "Trabajo",
+  "ui.welcome": "Bienvenido",
+  "ui.loading": "Cargando...",
+  "ui.no_data": "No hay datos para mostrar"
+}
