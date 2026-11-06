@@ -5,8 +5,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine
 
+from fiskal.db import models  # noqa: F401
 from fiskal.db.base import Base
-from fiskal.domain import models  # noqa: F401
 
 # This is the Alembic Config object, which provides access to the values within
 # the .ini file in use.

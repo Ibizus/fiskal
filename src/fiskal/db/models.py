@@ -1,4 +1,4 @@
-"""Core domain entities mapped to the database."""
+"""SQLAlchemy ORM models persisted in the database."""
 
 from __future__ import annotations
 

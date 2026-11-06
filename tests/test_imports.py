@@ -1,14 +1,12 @@
 """Smoke tests that all skeleton packages import cleanly."""
 
 from fiskal import classification, domain, importers, reports, ui
-from fiskal.db import base, engine
-from fiskal.domain import models
+from fiskal.db import base, engine, models
 
 
 def test_domain_imports() -> None:
     """Domain submodules import without errors."""
     assert domain is not None
-    assert models is not None
 
 
 def test_classification_imports() -> None:
@@ -35,3 +33,4 @@ def test_db_imports() -> None:
     """Database helpers import without errors."""
     assert base is not None
     assert engine is not None
+    assert models is not None
