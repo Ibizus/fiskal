@@ -1,0 +1,60 @@
+# Roadmap
+
+This roadmap reflects the settled product design for Fiskal. The core comes
+first; optional modules follow. Items are listed in rough execution order.
+
+## Core scope (v1)
+
+The v1 core is: import bank statements, classify them, validate the queue,
+keep transactions, and report by category and cost center.
+
+1. Design docs, fuel removal, CI fixes.
+2. Core data model (accounts, imports, transactions, categories, cost centers,
+   rules, recurring templates), with money as integer minor units plus currency
+   code.
+3. Synthetic statement generator: produce test fixtures from a structural
+   description of the bank format, never from a real bank file.
+4. Openbank importer: HTML-table `.xls` parser, idempotency, balance
+   continuity, card-number masking, normalization, duplicate detection.
+5. Classification engine and neutral seed rules.
+6. Validation queue and guided history import mode.
+7. Transactions page, manual entries and recurring templates.
+8. Reports and proration (cash view vs real-cost view).
+9. Month close, recurring-charge detector and manual backup.
+10. User documentation and usability test.
+
+## Optional modules (after the core)
+
+These depend on the core but are not part of it.
+
+- **Mortgage / loan schedules**: paste or upload an amortization schedule;
+  split each loan settlement into interest and capital.
+- **Rental and tax report**: owner shares per property, country-specific tax
+  rules, and a report for the tax adviser. Core categories carry only name,
+  kind and fixed/variable; the mapping to tax-report lines lives in this
+  module.
+
+## Later items
+
+- Pluggable AI classifier layer for the validation queue.
+- Generic bank-file column mapping.
+- More banks and countries.
+- Installable executable or installer packaging.
+- Onboarding wizard.
+- Application-level encrypted backup.
+- Optional login and remote access. Remote access is a scalability horizon,
+  not a priority: the app keeps a configurable listen address and makes no
+  localhost-only assumption.
+
+## Explicitly out of scope
+
+- Fuel tracking as a product feature. Fuel is an ordinary expense category;
+  per-vehicle fuel logs, EUR/km and l/100 km belong to a separate future
+  project.
+- Owner shares and country tax rules in the core.
+- Automatic pairing of both sides of an internal transfer in v1.
+- Cross-currency conversion in v1.
+- Application-level encryption in v1.
+- Deviation alerts and manual budget caps in v1.
+- Importing the user's previous spreadsheet history; it is used only to
+  compare totals of a closed year.

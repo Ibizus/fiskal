@@ -1,0 +1,129 @@
+# Fiskal glossary
+
+Definitions for the product domain used across Fiskal documentation and code.
+
+## Core entities
+
+**Transaction**:
+A single movement of money recorded in Fiskal.
+_Avoid_: Movement (used internally for some database tables), operation.
+
+**Account**:
+A bank or cash account that imports and owns transactions.
+_Avoid_: Wallet, pocket, book.
+
+**Import**:
+One act of reading a downloaded bank file and creating or matching transactions.
+_Avoid_: Upload, load.
+
+**Importer**:
+The adapter that parses a specific bank or file format into Fiskal domain objects.
+_Avoid_: Parser, reader.
+
+## Classification
+
+**Cost center**:
+The answer to "who or what does this belong to?", such as a property, vehicle,
+person or group.
+_Avoid_: Budget, envelope, project.
+
+**Category**:
+The answer to "what is this?", such as groceries, utilities or salary.
+_Avoid_: Tag, label.
+
+**Transaction type**:
+The effect of a transaction on the books. One of five kinds:
+
+- **expense**: money spent, counts as an expense.
+- **income**: money received, counts as an income.
+- **savings_investment**: money moved to savings or investments, shown outside
+  income and expenses.
+- **internal_transfer**: money moved between the user's own accounts, neutral
+  to totals.
+- **refund**: money received back that subtracts from its category's expenses.
+
+_Avoid_: Direction, sign, class.
+
+**Rule**:
+A configurable condition that assigns type, cost center and category to a
+transaction automatically.
+_Avoid_: Filter, automation.
+
+**Seed**:
+The neutral, non-personal default categories, cost centers and rules shipped
+with the application. Seeds are only initial data; the live source of truth is
+in the database.
+_Avoid_: Default, template.
+
+## Workflow
+
+**Profile**:
+A local directory outside the repository that holds one household's database,
+settings and personal seed rules.
+_Avoid_: Tenant, workspace.
+
+**Validation queue**:
+The list of transactions the classifier could not resolve automatically, ready
+for manual review.
+_Avoid_: Inbox, review pile.
+
+**Pending**:
+A transaction that has been imported but not yet confirmed by the user.
+_Avoid_: Unconfirmed, draft.
+
+**Validated**:
+A transaction the user has confirmed or corrected.
+_Avoid_: Approved, committed.
+
+**Closed month**:
+A month that has been explicitly locked after review. Nothing can be imported
+or reclassified in it until it is reopened.
+_Avoid_: Locked period, finalized.
+
+## Reporting
+
+**Proration**:
+Spreading a single transaction's amount evenly across several months, starting
+from its date.
+_Avoid_: Amortization, split.
+
+**Cash view**:
+A report that shows transactions on the dates they happened.
+_Avoid_: Actual view, paid view.
+
+**Real-cost view**:
+A report that shows prorated transactions spread across the months they cover.
+_Avoid_: Accrual view, smoothed view.
+
+**Recurring charge**:
+A periodic payment the detector identifies by its repeating counterparty,
+interval and amount.
+_Avoid_: Subscription, periodic expense.
+
+**Recurring template**:
+A manually configured pattern that generates a transaction on the same day each
+month without passing through the bank.
+_Avoid_: Scheduled transaction, repeat.
+
+## Normalization
+
+**Counterparty**:
+The other party extracted from a bank description, such as a merchant or payer.
+_Avoid_: Payee, vendor.
+
+**Normalized description**:
+The cleaned, rule-ready text derived from the raw bank description. Rules match
+only normalized fields.
+_Avoid_: Cleaned text, mapped description.
+
+## Scope
+
+**Core**:
+The mandatory product scope: import, classification, validation queue,
+transactions and reports.
+_Avoid_: Base, kernel.
+
+**Optional module**:
+A feature area that is installed or activated after the core, such as loan
+schedules or rental and tax reporting.
+_Avoid_: Plugin, extension.

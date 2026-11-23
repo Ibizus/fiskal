@@ -3,7 +3,8 @@
 A public, local-first personal finance app built with Python, SQLite, and
 Streamlit.
 
-> **Status:** phase 0 foundation. No importers, classification, or reports yet.
+> **Status:** phase 0 foundation. Design documents and roadmap are in place;
+> implementation of the core is in progress.
 
 ## License
 
@@ -39,14 +40,20 @@ Run migrations on a temporary database:
 uv run alembic -c migrations/alembic.ini upgrade head
 ```
 
+## Documentation
+
+- [`docs/specification.md`](docs/specification.md) – product specification.
+- [`docs/roadmap.md`](docs/roadmap.md) – scope and ordered task list.
+- [`GLOSSARY.md`](GLOSSARY.md) – domain terminology.
+- [`docs/adr/`](docs/adr/) – architecture decision records.
+
 ## Architecture overview
 
 - `src/fiskal/domain/` – core entities and repository interfaces.
 - `src/fiskal/db/` – SQLAlchemy base, engine helpers, and session utilities.
-- `src/fiskal/importers/` – bank/file import adapters (future work).
-- `src/fiskal/classification/` – category and cost-center rules (future work).
-- `src/fiskal/reports/` – report builders (future work).
-- `src/fiskal/fuel/` – optional fuel-tracking module.
+- `src/fiskal/importers/` – bank/file import adapters.
+- `src/fiskal/classification/` – category and cost-center rules.
+- `src/fiskal/reports/` – report builders.
 - `src/fiskal/ui/` – Streamlit pages with no business logic.
 - `src/fiskal/i18n/` – translation catalogs in English and Spanish.
 - `migrations/` – Alembic database migrations.
@@ -65,9 +72,4 @@ See [`docs/contributing.md`](docs/contributing.md) and [`AGENTS.md`](AGENTS.md).
 
 ## Follow-up work
 
-- Banking importers.
-- Real data fixtures (only synthetic placeholders are allowed).
-- Executable or installer packaging.
-- Login and authentication.
-- Fiscal (tax) report module.
-- Photo/AI features.
+Planned work and scope are tracked in [`docs/roadmap.md`](docs/roadmap.md).

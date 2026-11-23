@@ -22,7 +22,6 @@ committed.**
 - `src/fiskal/classification/` – rules that assign categories and cost centers.
   Only configurable, non-personal default rules belong here.
 - `src/fiskal/reports/` – report builders that aggregate domain data.
-- `src/fiskal/fuel/` – optional fuel-tracking module with its own tables.
 - `src/fiskal/ui/` – Streamlit pages and launch helpers. Pages hold **no**
   business logic.
 - `src/fiskal/i18n/` – translation catalogs. Keys are neutral English; display
@@ -30,6 +29,9 @@ committed.**
 - `migrations/` – Alembic migrations. Every schema change needs a migration.
 - `tests/` – pytest suite.
 - `scripts/` – tooling scripts, including the personal-data guard.
+
+Domain terms are defined in [`GLOSSARY.md`](GLOSSARY.md) and architecture
+decisions are recorded in [`docs/adr/`](docs/adr/).
 
 ## How to run tests and checks
 
