@@ -10,6 +10,7 @@ import subprocess
 import sys
 from datetime import date
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -294,13 +295,15 @@ def test_make_engine_enables_foreign_keys() -> None:
         assert result.scalar() == 1
 
 
-def _run_alembic(db_path: Path, *args: str) -> None:
+def _run_alembic(
+    db_path: Path, *args: str, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     alembic_ini = Path(__file__).resolve().parents[1] / "migrations" / "alembic.ini"
     env = {
         **dict(os.environ),
         "FISKAL_MIGRATION_URL": f"sqlite:///{db_path}",
     }
-    subprocess.run(
+    return subprocess.run(
         [
             sys.executable,
             "-m",
@@ -310,7 +313,7 @@ def _run_alembic(db_path: Path, *args: str) -> None:
             *args,
         ],
         env=env,
-        check=True,
+        check=check,
         capture_output=True,
         text=True,
     )
@@ -324,6 +327,76 @@ def test_migration_upgrade_downgrade_round_trip(tmp_path: Path) -> None:
     _run_alembic(db_path, "downgrade", "-1")
     _run_alembic(db_path, "upgrade", "head")
     _run_alembic(db_path, "check")
+
+
+def _table_names(db_path: Path) -> set[str]:
+    with make_engine(f"sqlite:///{db_path}").connect() as connection:
+        rows = connection.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+        return {row[0] for row in rows}
+
+
+def _seed_transaction(session: Session) -> None:
+    _make_transaction(session, account=_make_account(session), identity_key="k1")
+
+
+def _seed_import(session: Session) -> None:
+    _make_import(session, _make_account(session))
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [
+        _seed_transaction,
+        _seed_import,
+        _make_account,
+        _make_category,
+        _make_cost_center,
+    ],
+)
+def test_downgrade_with_rows_is_refused(tmp_path: Path, seed: Any) -> None:
+    """Downgrading a populated database fails before touching the schema."""
+    db_path = tmp_path / "populated.db"
+    _run_alembic(db_path, "upgrade", "head")
+    tables_before = _table_names(db_path)
+    session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
+    seed(session)
+    session.close()
+
+    result = _run_alembic(db_path, "downgrade", "-1", check=False)
+
+    assert result.returncode != 0
+    assert "empty database" in result.stderr
+    assert _table_names(db_path) == tables_before
+    current = _run_alembic(db_path, "current")
+    assert "01d213a4aac2 (head)" in current.stdout
+    _run_alembic(db_path, "check")
+
+
+def test_downgrade_on_empty_database_restores_placeholder(tmp_path: Path) -> None:
+    """An empty database downgrades to the phase 0 placeholder schema."""
+    db_path = tmp_path / "empty.db"
+    _run_alembic(db_path, "upgrade", "head")
+
+    _run_alembic(db_path, "downgrade", "-1")
+
+    assert _table_names(db_path) == {"alembic_version", "transactions"}
+    with make_engine(f"sqlite:///{db_path}").connect() as connection:
+        columns = {
+            row[1]: (row[2], bool(row[3]))
+            for row in connection.exec_driver_sql("PRAGMA table_info(transactions)")
+        }
+        version = connection.exec_driver_sql(
+            "SELECT version_num FROM alembic_version"
+        ).scalar()
+    assert columns == {
+        "id": ("CHAR(32)", True),
+        "amount": ("NUMERIC(14, 4)", True),
+        "currency": ("VARCHAR(3)", True),
+        "description": ("VARCHAR(255)", True),
+    }
+    assert version == "c82da8d3d961"
 
 
 @pytest.mark.parametrize(
