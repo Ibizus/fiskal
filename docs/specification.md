@@ -119,8 +119,8 @@ profile uses one currency.
 
 Main tables:
 
-- **accounts**: id, display name, currency code, optional external identifier
-  mask, active flag.
+- **accounts**: id, display name, currency code, optional default cost center,
+  optional account hint (last four digits of the account code), active flag.
 - **imports**: id, account id, file name, file hash, import date, rows read,
   new rows, duplicate rows, first transaction date, last transaction date, balance
   continuity flag.
@@ -164,6 +164,10 @@ detected by content, not hard-coded.
 - Amounts: text with comma decimals, dot thousands, leading minus for expenses,
   no currency symbol.
 - Ordering: newest first.
+- Account selection: the importer reads the account code from the statement
+  header, proposes the account, stores only the last four digits as an account
+  hint, and asks the user to confirm. Full account numbers and IBANs are never
+  stored.
 - Descriptions: space-padded to 100 characters and truncated at 100 characters.
   Rows that reach the truncation limit are flagged.
 - Unique key: for Openbank, a hash of (operation date, value date, description,
@@ -212,17 +216,21 @@ and every manual correction can become a rule. Target: after the history is
 loaded, under 5% of a month's transactions reach the manual queue.
 
 1. Normalization (in the importer).
-2. Deterministic rules by priority: first match assigns type, cost center and
+2. Internal transfer pairing: immediately after import, the core proposes the
+   matching counterpart transaction in another account of the profile for
+   confirmation. Both sides are marked as `internal_transfer` so merged views do
+   not double count them. Full account numbers are never stored.
+3. Deterministic rules by priority: first match assigns type, cost center and
    category. Conditions: "contains" on the normalized description/counterparty,
    optional amount range, optional day-of-month range. Regular expressions are
    an optional advanced mode.
-3. History: if the same normalized counterparty was always validated one way,
+4. History: if the same normalized counterparty was always validated one way,
    propose it; if it had several, queue it with the most frequent one
    preselected.
-4. AI (optional module, v2): a `Classifier` implementation that suggests with a
+5. AI (optional module, v2): a `Classifier` implementation that suggests with a
    confidence level and never validates by itself. It sends only the normalized
    concept, amount and date.
-5. Validation queue: confirm or correct; on correction the app offers "create
+6. Validation queue: confirm or correct; on correction the app offers "create
    rule" with an editable proposed pattern.
 
 Cross-cutting business rules:
@@ -253,24 +261,35 @@ Cross-cutting business rules:
 ## Accounts
 
 Account is a first-class entity from day one: every import and transaction
-belongs to an account, and balance continuity is checked per account. The first
-UI handles one account. Automatic pairing of both sides of an internal transfer
-is deferred; until then a rule classifies it as an internal transfer.
+belongs to an account, and balance continuity is checked per account. The
+default view of Overview, Reports, Transactions and Validate merges all accounts
+of the profile, with a filter to show one or several accounts. Every import
+names its account; the importer proposes it from the account code in the
+statement header, storing only the last four digits as a hint and never the
+full number, and the user confirms. Automatic pairing of both sides of an
+internal transfer between the user's own accounts is part of the core,
+scheduled right after the importer, so merged views do not double count
+transfers.
 
 ## Screens
 
 Six Streamlit pages in the core:
 
-1. **Import**: upload files; summary of rows read, new, duplicated, date range,
+1. **Import**: select or confirm the account proposed from the statement
+   header; upload files; summary of rows read, new, duplicated, date range,
    balance-continuity warning and queue size.
-2. **Validate**: pending queue with preselected suggestion; inline editing of
+2. **Validate**: pending queue with preselected suggestion; default view merges
+   all accounts, with a filter for one or several accounts; inline editing of
    type, cost center, category, proration period and note; confirm,
    confirm selected, create rule.
-3. **Transactions**: filterable table with editing and manual entries.
-4. **Overview**: current month against the 12-month average; fixed and variable
+3. **Transactions**: filterable table with editing and manual entries; default
+   view merges all accounts, with a filter for one or several accounts.
+4. **Overview**: current month against the 12-month average; default view merges
+   all accounts, with a filter for one or several accounts; fixed and variable
    spending; savings; active notices; newly detected recurrences.
 5. **Reports**: annual matrix by category and month, cost-center view, cash
-   versus real-cost selector.
+   versus real-cost selector; default view merges all accounts, with a filter
+   for one or several accounts.
 6. **Settings**: rules, cost centers, categories, recurring templates,
    accounts, language.
 

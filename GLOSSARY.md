@@ -9,7 +9,10 @@ A single movement of money recorded in Fiskal.
 _Avoid_: Movement (used internally for some database tables), operation.
 
 **Account**:
-A bank or cash account that imports and owns transactions.
+A bank or cash account where money moves. Every import and transaction belongs
+to an account. The account is independent of the cost center, which is who or
+what the money belongs to. An account may have an optional default cost center
+for transactions that no rule classifies.
 _Avoid_: Wallet, pocket, book.
 
 **Import**:
@@ -19,6 +22,11 @@ _Avoid_: Upload, load.
 **Importer**:
 The adapter that parses a specific bank or file format into Fiskal domain objects.
 _Avoid_: Parser, reader.
+
+**Account hint**:
+The last four digits of an account code, stored to help recognize the account on
+later imports. Full account numbers and IBANs are never stored.
+_Avoid_: Account number, IBAN.
 
 ## Classification
 
@@ -54,6 +62,17 @@ The neutral, non-personal default categories, cost centers and rules shipped
 with the application. Seeds are only initial data; the live source of truth is
 in the database.
 _Avoid_: Default, template.
+
+**Default cost center**:
+An optional cost center assigned to an account. It is applied to transactions
+that no rule classifies when the account is known.
+_Avoid_: Fallback category.
+
+**Internal transfer pairing**:
+The core step that proposes the two transactions, one in each of the user's own
+accounts, that make up an internal transfer. Pairing marks both as
+`internal_transfer` so merged views do not double count them; the user confirms.
+_Avoid_: Transfer matching, reconciliation.
 
 ## Workflow
 

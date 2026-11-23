@@ -16,12 +16,15 @@ keep transactions, and report by category and cost center.
    description of the bank format, never from a real bank file.
 4. Openbank importer: HTML-table `.xls` parser, idempotency, balance
    continuity, card-number masking, normalization, duplicate detection.
-5. Classification engine and neutral seed rules.
-6. Validation queue and guided history import mode.
-7. Transactions page, manual entries and recurring templates.
-8. Reports and proration (cash view vs real-cost view).
-9. Month close, recurring-charge detector and manual backup.
-10. User documentation and usability test.
+5. Internal transfer pairing: propose and confirm counterpart transactions
+   between the user's own accounts, so merged views do not double count
+   transfers.
+6. Classification engine and neutral seed rules.
+7. Validation queue and guided history import mode.
+8. Transactions page, manual entries and recurring templates.
+9. Reports and proration (cash view vs real-cost view).
+10. Month close, recurring-charge detector and manual backup.
+11. User documentation and usability test.
 
 ## Optional modules (after the core)
 
@@ -52,7 +55,6 @@ These depend on the core but are not part of it.
   per-vehicle fuel logs, EUR/km and l/100 km belong to a separate future
   project.
 - Owner shares and country tax rules in the core.
-- Automatic pairing of both sides of an internal transfer in v1.
 - Cross-currency conversion in v1.
 - Application-level encryption in v1.
 - Deviation alerts and manual budget caps in v1.
