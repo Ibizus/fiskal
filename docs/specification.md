@@ -117,23 +117,27 @@ profile uses one currency.
 | `internal_transfer` | No (neutral) | Moving money between own accounts |
 | `refund` | Subtracts from the expense category | A friend pays back a shared dinner |
 
-Main tables:
+Main tables (field names match the v1 schema):
 
-- **accounts**: id, display name, currency code, optional default cost center,
-  optional account hint (last four digits of the account code), active flag.
-- **imports**: id, account id, file name, file hash, import date, rows read,
-  new rows, duplicate rows, first transaction date, last transaction date, balance
-  continuity flag.
-- **transactions**: id, account id, import id, operation date, value
-  date, original description (card number already masked), normalized
-  description, counterparty, amount in minor units, balance in minor units,
-  currency code, type, cost center, category, origin (rule / history / manual /
-  template), rule id, status (pending / validated), optional proration period,
-  note, manual flag.
-- **cost_centers**: id, name key, optional custom name, group (free-form label),
-  active flag, JSON attributes.
-- **categories**: id, name key, kind (income or expense), fixed/variable flag,
-  optional default proration months.
+- **accounts**: id, `name` (display name), `currency_code`, optional
+  `default_cost_center_id`, optional `account_hint` (at most four characters),
+  `is_active`.
+- **imports**: id, `account_id`, `file_name`, `file_hash`, `imported_at`,
+  `rows_read`, `new_count`, `duplicate_count`, `first_transaction_date`,
+  `last_transaction_date`, `continuity_ok`.
+- **transactions**: id, `account_id`, `import_id`, `operation_date`,
+  `value_date`, `original_description`, `normalized_description`,
+  `counterparty`, `amount_minor`, `balance_minor`, `currency_code`, `type`,
+  `cost_center_id`, `category_id`, `origin` (rule / history / manual /
+  template), `status` (pending / validated), optional proration period
+  (`proration_start_date` and `proration_end_date`), `note`, `is_manual`,
+  `identity_key` (unique per account). The `rule_id` field is deferred until
+  the classification rules table is implemented.
+- **cost_centers**: id, `name_key`, optional `custom_name`, `group_label`,
+  `is_active`, `attributes`.
+- **categories**: id, `name_key`, optional `custom_name`, `kind` (income or
+  expense), `nature` (fixed / variable), `default_proration_months`,
+  `is_active`.
 - **rules**: id, priority, condition on the normalized description
   ("contains" by default, optional regex advanced mode), optional amount range,
   optional day-of-month range, type, cost center, category, active flag, created
