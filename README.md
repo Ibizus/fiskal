@@ -72,10 +72,4 @@ See [`docs/contributing.md`](docs/contributing.md) and [`AGENTS.md`](AGENTS.md).
 
 ## Follow-up work
 
-- Core data model migration to integer minor units.
-- Banking importers.
-- Synthetic fixtures and real fixture guard.
-- Executable or installer packaging.
-- Login and authentication.
-- Optional fiscal (tax) report module.
-- Photo/AI features.
+Planned work and scope are tracked in [`docs/roadmap.md`](docs/roadmap.md).
