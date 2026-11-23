@@ -23,6 +23,5 @@ def test_welcome_page_renders() -> None:
     assert "Fiskal" in titles, f"Expected 'Fiskal' title, got {titles}"
 
     subheaders = [s.value for s in app.subheader]
-    assert (
-        "Local-first personal finance" in subheaders
-    ), f"Expected tagline, got {subheaders}"
+    tagline_msg = f"Expected tagline, got {subheaders}"
+    assert "Local-first personal finance" in subheaders, tagline_msg
