@@ -11,7 +11,6 @@ Fiskal is organized into packages with clear responsibilities.
 | `importers` | Adapters that read downloaded bank/files and map them to domain objects. |
 | `classification` | Rules that assign categories and cost centers to transactions. |
 | `reports` | Builders that aggregate domain data into report structures. |
-| `fuel` | Optional fuel-tracking module with its own tables. |
 | `ui` | Streamlit pages and launch helpers. Pages contain no business logic. |
 | `i18n` | Translation catalogs and lookup helpers. |
 
@@ -21,6 +20,11 @@ Fiskal is organized into packages with clear responsibilities.
 2. Classification rules enrich transactions with categories and cost centers.
 3. Reports aggregate classified transactions.
 4. The UI renders reports and lets the user review and adjust data.
+
+## Glossary and decisions
+
+Domain terms are defined in [`GLOSSARY.md`](../GLOSSARY.md). Architecture
+decisions are recorded in [`docs/adr/`](adr/).
 
 ## Local-first design
 

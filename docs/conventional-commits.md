@@ -34,5 +34,5 @@ chore(ci): enable pip-audit in GitHub Actions
 ## Scope
 
 Scope is optional but encouraged. Use the package or area being changed, such
-as `domain`, `db`, `importers`, `classification`, `reports`, `fuel`, `ui`,
-`i18n`, `ci`, or `docs`.
+as `domain`, `db`, `importers`, `classification`, `reports`, `ui`, `i18n`,
+`ci`, or `docs`.
