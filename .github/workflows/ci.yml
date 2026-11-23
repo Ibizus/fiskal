@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.x"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Check formatting
+        run: uv run ruff format --check
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Type-check core packages
+        run: uv run mypy --strict src/fiskal/domain src/fiskal/classification src/fiskal/importers
+
+  test:
+    name: Tests and coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.x"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests
+        run: uv run pytest --cov-report=xml
+
+      - name: Coverage diff
+        if: github.event_name == 'pull_request'
+        uses: orgoro/coverage@v3.1
+        with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  migrations:
+    name: Database migrations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.x"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Upgrade empty database
+        run: uv run alembic -c migrations/alembic.ini upgrade head
+
+      - name: Check for missing migrations
+        run: uv run alembic -c migrations/alembic.ini check
+
+  security:
+    name: Security checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.x"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Personal data guard
+        run: uv run python scripts/guard_personal_data.py
+
+      - name: pip-audit
+        run: uv run pip-audit . --desc
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  ui-smoke:
+    name: Streamlit smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.x"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Start Streamlit and verify pages
+        run: |
+          uv run streamlit run src/fiskal/ui/launcher.py --server.headless true &
+          pid=$!
+          sleep 10
+          curl --fail --silent http://localhost:8501/_stcore/health
+          kill $pid

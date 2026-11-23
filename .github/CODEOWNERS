@@ -1,0 +1,6 @@
+.github/ @Ibizus
+migrations/ @Ibizus
+AGENTS.md @Ibizus
+src/fiskal/classification/seed* @Ibizus
+src/fiskal/i18n/*.json @Ibizus
+scripts/guard_personal_data.py @Ibizus
