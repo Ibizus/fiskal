@@ -11,7 +11,5 @@ is deferred; until then a rule classifies the transfer as internal.
 
 ## Consequences
 
-- Imports must be associated with an account at upload time.
-- Reports aggregate per account by default.
-- Multi-account users will need a way to switch accounts, which can be added
-  later without touching the data model.
+- Every import and transaction belongs to an account.
+- Balance continuity is checked per account.

@@ -1,7 +1,7 @@
 # Fiskal specification
 
 Fiskal is a free, local-first personal finance application. It imports downloaded
-bank statements, classifies movements automatically, asks for manual validation
+bank statements, classifies transactions automatically, asks for manual validation
 only for the rest, and turns the result into reports per cost center.
 
 This document is generic by design: it contains no personal data, and every
@@ -36,7 +36,7 @@ Principles:
 The v1 core is limited to:
 
 - importing downloaded bank statements (first supported format: Openbank),
-- classifying movements with deterministic rules and history,
+- classifying transactions with deterministic rules and history,
 - reviewing them in a validation queue,
 - maintaining transactions, manual entries and recurring templates, and
 - reporting an annual matrix by category and month plus a cost-center view with
@@ -59,7 +59,7 @@ Python, SQLite and Streamlit, all local, no external services in v1.
 
 Modules, as independent packages talking through interfaces:
 
-- `importers/`: an `Importer` interface returning raw movements. Adding a bank
+- `importers/`: an `Importer` interface returning raw transactions. Adding a bank
   means adding one class.
 - `classification/`: a `Classifier` cascade (rules, history, and later AI).
 - `domain/`: model and logic (proration, recurring templates, recurring-charge
@@ -98,7 +98,7 @@ commits.
 
 ## Data model
 
-Each movement carries three independent labels: **type** (its effect),
+Each transaction carries three independent labels: **type** (its effect),
 **cost center** (who or what it belongs to) and **category** (what it is).
 Fixed or variable derives from the category and is never labeled by hand.
 
@@ -119,9 +119,9 @@ Main tables:
 - **accounts**: id, display name, currency code, optional external identifier
   mask, active flag.
 - **imports**: id, account id, file name, file hash, import date, rows read,
-  new rows, duplicate rows, first movement date, last movement date, balance
+  new rows, duplicate rows, first transaction date, last transaction date, balance
   continuity flag.
-- **movements** (transactions): id, account id, import id, operation date, value
+- **transactions**: id, account id, import id, operation date, value
   date, original description (card number already masked), normalized
   description, counterparty, amount in minor units, balance in minor units,
   currency code, type, cost center, category, origin (rule / history / manual /
@@ -177,7 +177,7 @@ detected by content, not hard-coded.
   withdrawal, loan settlement, social security). Rules match only normalized
   fields, never raw text, and never depend on the end of a description because
   banks truncate it.
-- Duplicate handling: a movement that reappears in an overlapping import with a
+- Duplicate handling: a transaction that reappears in an overlapping import with a
   slightly different description text is treated as a duplicate when date,
   amount and balance match. The import summary reports the text difference;
   nothing is created or modified.
@@ -186,18 +186,18 @@ detected by content, not hard-coded.
 
 After reading any file the importer reports:
 
-- first and last movement date,
+- first and last transaction date,
 - total line count,
 - how many rows are new and how many were already loaded, and
 - a balance-continuity warning when the check fails.
 
-An alert is raised when the file adds no new movement, which catches wrong
+An alert is raised when the file adds no new transaction, which catches wrong
 uploads and downloads with unexpected dates.
 
 ### Import revert
 
-An import can be reverted as a whole while none of its movements has been
-validated and its month is not closed. Otherwise only single movements can be
+An import can be reverted as a whole while none of its transactions has been
+validated and its month is not closed. Otherwise only single transactions can be
 deleted, with a confirmation. Data imported from the bank (dates, amount,
 description, balance) is never edited; only classification and note are
 editable. Manual entries are fully editable.
@@ -206,7 +206,7 @@ editable. Manual entries are fully editable.
 
 A cascade where each layer only receives what the previous one did not resolve,
 and every manual correction can become a rule. Target: after the history is
-loaded, under 5% of a month's movements reach the manual queue.
+loaded, under 5% of a month's transactions reach the manual queue.
 
 1. Normalization (in the importer).
 2. Deterministic rules by priority: first match assigns type, cost center and
@@ -227,7 +227,7 @@ Cross-cutting business rules:
 - **Rule precedence**: rules created from the validation queue always beat seed
   rules. Within each group, an editable numeric priority decides; first match
   wins. The rule editor warns when a new rule collides with another.
-- **Correcting a classified transaction**: correcting a movement that a rule
+- **Correcting a classified transaction**: correcting a transaction that a rule
   classified offers a new, more specific rule above it. A rule is never
   modified silently. Rule changes reclassify only pending transactions;
   validated transactions never change on their own. An explicit bulk action
@@ -236,7 +236,7 @@ Cross-cutting business rules:
   refund that nets against its category in the month it arrives. It is not
   linked to the original expense.
 - **Proration**: a category can define a default number of proration months;
-  the period can also be edited per movement. A prorated movement is spread
+  the period can also be edited per transaction. A prorated transaction is spread
   evenly across months in the real-cost view and shown whole on its date in the
   cash view.
 - **Recurring templates**: generated on the configured day each month, for
@@ -273,7 +273,7 @@ Six Streamlit pages in the core:
 
 ## Reports
 
-All reports are queries over `movements`; none stores its own totals.
+All reports are queries over `transactions`; none stores its own totals.
 
 - Yearly summary (category by month plus total, with savings and investments in
   a separate block), in cash and real-cost views.
@@ -292,7 +292,7 @@ and the reopening is recorded.
 
 ## Bulk history import
 
-Importing years of history is a guided mode: movements are grouped by
+Importing years of history is a guided mode: transactions are grouped by
 normalized description and validated in blocks, so one correction classifies
 every occurrence and feeds the rule dictionary. Bulk import must handle
 thousands of rows.
@@ -318,7 +318,7 @@ Data never leaves the user's machine in v1.
 - [ ] Re-importing the same or an overlapping file creates zero duplicates; a
       differing description only warns.
 - [ ] The import summary reports first and last date, total lines, new and
-      duplicate counts, and raises an alert when no movement is new.
+      duplicate counts, and raises an alert when no transaction is new.
 - [ ] The continuity check detects a deliberate gap in a fixture.
 - [ ] No full card number is ever stored in the database, logs or error
       messages.
@@ -331,7 +331,7 @@ Data never leaves the user's machine in v1.
 - [ ] The annual summary reproduces a closed year from the user's previous
       spreadsheet, except differences explained by the new model.
 - [ ] After validating the history, a new month leaves under 5% of its
-      movements in the queue.
+      transactions in the queue.
 - [ ] The recurring-charge detector flags a planted recurrence.
 - [ ] Automated tests cover the importer, proration, rule precedence and
       normalization.

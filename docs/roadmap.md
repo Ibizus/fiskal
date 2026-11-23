@@ -9,7 +9,7 @@ The v1 core is: import bank statements, classify them, validate the queue,
 keep transactions, and report by category and cost center.
 
 1. Design docs, fuel removal, CI fixes.
-2. Core data model (accounts, imports, movements, categories, cost centers,
+2. Core data model (accounts, imports, transactions, categories, cost centers,
    rules, recurring templates), with money as integer minor units plus currency
    code.
 3. Synthetic statement generator: produce test fixtures from a structural

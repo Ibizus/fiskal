@@ -22,7 +22,7 @@ committed.**
 - `src/fiskal/classification/` – rules that assign categories and cost centers.
   Only configurable, non-personal default rules belong here.
 - `src/fiskal/reports/` – report builders that aggregate domain data.
-- `src/fiskal/ui/` – Streamlit pages and launch helpers. Pages hold **no
+- `src/fiskal/ui/` – Streamlit pages and launch helpers. Pages hold **no**
   business logic.
 - `src/fiskal/i18n/` – translation catalogs. Keys are neutral English; display
   text lives in `en.json` and `es.json`. No Spanish text in code.
