@@ -294,32 +294,60 @@ def test_make_engine_enables_foreign_keys() -> None:
         assert result.scalar() == 1
 
 
-def test_migration_upgrade_downgrade_round_trip(tmp_path: Path) -> None:
-    """The new migration can be applied, reverted, and reapplied cleanly."""
-    db_path = tmp_path / "migration.db"
+def _run_alembic(db_path: Path, *args: str) -> None:
     alembic_ini = Path(__file__).resolve().parents[1] / "migrations" / "alembic.ini"
     env = {
         **dict(os.environ),
         "FISKAL_MIGRATION_URL": f"sqlite:///{db_path}",
     }
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            str(alembic_ini),
+            *args,
+        ],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
-    def run(*args: str) -> None:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "alembic",
-                "-c",
-                str(alembic_ini),
-                *args,
-            ],
-            env=env,
-            check=True,
-            capture_output=True,
-            text=True,
+
+def test_migration_upgrade_downgrade_round_trip(tmp_path: Path) -> None:
+    """The new migration can be applied, reverted, and reapplied cleanly."""
+    db_path = tmp_path / "migration.db"
+
+    _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "downgrade", "-1")
+    _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "check")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("transaction_type", "not-a-type"),
+        ("status", "unknown"),
+        ("origin", "not-an-origin"),
+    ],
+)
+def test_migrated_database_rejects_invalid_transaction_values(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    """A database built by the migrations enforces the transaction checks."""
+    db_path = tmp_path / "migrated.db"
+    _run_alembic(db_path, "upgrade", "head")
+    session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
+    account = _make_account(session)
+
+    with pytest.raises(IntegrityError):
+        _make_transaction(
+            session,
+            account=account,
+            identity_key=f"bad-{field}",
+            **{field: value},
         )
-
-    run("upgrade", "head")
-    run("downgrade", "-1")
-    run("upgrade", "head")
-    run("check")
+    session.close()
