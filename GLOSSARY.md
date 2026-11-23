@@ -64,8 +64,10 @@ in the database.
 _Avoid_: Default, template.
 
 **Default cost center**:
-An optional cost center assigned to an account. It is applied to transactions
-that no rule classifies when the account is known.
+An optional cost center assigned to an account, applied as the last
+classification layer before the validation queue: it only fills the cost center
+when no rule, history or AI suggestion has set one, and the transaction is still
+validated with it preselected.
 _Avoid_: Fallback category.
 
 **Internal transfer pairing**:

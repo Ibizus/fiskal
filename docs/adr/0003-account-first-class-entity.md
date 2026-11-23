@@ -16,8 +16,10 @@ importer, so merged views do not double count transfers.
 - Every import and transaction belongs to an account.
 - The account is where the money moves; the cost center is who or what the
   money belongs to. The two are independent concepts.
-- An account may have an optional default cost center, applied to transactions
-  that no rule classifies.
+- An account may have an optional default cost center, applied as the last
+  classification layer before the validation queue: it only fills the cost
+  center when no rule, history or AI suggestion has set one, and the
+  transaction is still validated with it preselected.
 - Overview, Reports, Transactions and Validate show all accounts merged by
   default, with a filter to show one or several accounts.
 - Every import names its account. The importer proposes the account from the

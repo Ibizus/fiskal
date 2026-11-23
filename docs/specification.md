@@ -173,7 +173,9 @@ detected by content, not hard-coded.
 - Unique key: for Openbank, a hash of (operation date, value date, description,
   amount, balance) plus an occurrence counter for identical rows inside one
   file. Each importer declares how it identifies a transaction; when the bank
-  provides its own identifier, that identifier is used.
+  provides its own identifier, that identifier is used. Identity is always
+  scoped to the account, so identical rows in two different accounts are never
+  treated as duplicates.
 - Continuity: sort chronologically per account and verify
   `previous balance + amount = balance`; show a warning for gaps or
   inconsistent overlaps.
@@ -185,9 +187,9 @@ detected by content, not hard-coded.
   fields, never raw text, and never depend on the end of a description because
   banks truncate it.
 - Duplicate handling: a transaction that reappears in an overlapping import with a
-  slightly different description text is treated as a duplicate when date,
-  amount and balance match. The import summary reports the text difference;
-  nothing is created or modified.
+  slightly different description text is treated as a duplicate when account,
+  date, amount and balance match. The import summary reports the text
+  difference; nothing is created or modified.
 
 ### Import summary
 
@@ -230,7 +232,12 @@ loaded, under 5% of a month's transactions reach the manual queue.
 5. AI (optional module, v2): a `Classifier` implementation that suggests with a
    confidence level and never validates by itself. It sends only the normalized
    concept, amount and date.
-6. Validation queue: confirm or correct; on correction the app offers "create
+6. Account default cost center: the last classification layer before the
+   validation queue. It only fills the cost center, and only when no earlier
+   layer (rules, history, optional AI suggestion) has already set one; it never
+   sets type or category and never overrides an earlier layer. The transaction
+   still goes through the validation queue with that cost center preselected.
+7. Validation queue: confirm or correct; on correction the app offers "create
    rule" with an editable proposed pattern.
 
 Cross-cutting business rules:
