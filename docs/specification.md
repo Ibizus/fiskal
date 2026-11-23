@@ -103,8 +103,11 @@ Each transaction carries three independent labels: **type** (its effect),
 Fixed or variable derives from the category and is never labeled by hand.
 
 Amounts are stored as integer minor units (for example cents) together with an
-ISO currency code per transaction. There is no cross-currency conversion in v1:
-one profile uses one currency.
+ISO currency code per transaction. Calculations such as proration use integer
+arithmetic with a deterministic distribution of the remainder, while
+percentages and rates are converted back to integer minor units through an
+explicit rounding rule. There is no cross-currency conversion in v1: one
+profile uses one currency.
 
 | Type | Counts as expense/income | Example |
 | --- | --- | --- |
