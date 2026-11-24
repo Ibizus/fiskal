@@ -6,6 +6,7 @@ specification, are deterministic, and can be read back with pandas.
 
 from __future__ import annotations
 
+import itertools
 import random
 import re
 from dataclasses import replace
@@ -17,9 +18,11 @@ import pytest
 
 from tests.support.openbank_synthetic import (
     GenerationOptions,
+    Movement,
     _format_money_minor,
     generate_movements,
     generate_statement_html,
+    main,
     write_statement,
 )
 
@@ -318,17 +321,59 @@ def test_extra_trailing_blank(
 
 
 def test_repeated_rows_on_same_day(default_options: GenerationOptions) -> None:
-    """Repeated-rows mode may produce identical rows on the same day."""
+    """Repeated-rows mode produces rows identical in every non-balance field."""
     options = replace(default_options, repeated_rows=True)
-    movements = generate_movements(options)
-    # Group by operation date and look for identical movement triples.
-    by_date: dict[date, list[tuple[int, str]]] = {}
-    for movement in movements:
-        by_date.setdefault(movement.operation_date, []).append(
-            (movement.amount_minor, movement.description),
+    chrono = list(reversed(generate_movements(options)))
+
+    def _key(movement: Movement) -> tuple[date, date, str, int]:
+        return (
+            movement.operation_date,
+            movement.value_date,
+            movement.description,
+            movement.amount_minor,
         )
-    repeated_found = any(len(set(tuples)) < len(tuples) for tuples in by_date.values())
-    assert repeated_found
+
+    assert _key(chrono[0]) == _key(chrono[1])
+    repeats = sum(
+        _key(older) == _key(newer) for older, newer in itertools.pairwise(chrono)
+    )
+    assert repeats > 1
+
+
+def test_header_balance_is_current_balance(
+    default_options: GenerationOptions, tmp_path: Path
+) -> None:
+    """The header balance must equal the newest row's balance."""
+    path = tmp_path / "statement.xls"
+    write_statement(default_options, path)
+    df = _read_html_tables(path)[0]
+    newest = generate_movements(default_options)[0]
+    assert df.iloc[7, 3] == f"{_format_money_minor(newest.balance_minor)} EUR"
+
+
+def test_header_timestamp_comes_from_movements(
+    default_options: GenerationOptions,
+) -> None:
+    """The generation timestamp must derive from the data, not the clock."""
+    html_text = generate_statement_html(default_options)
+    newest = generate_movements(default_options)[0]
+    expected = newest.operation_date.strftime("%d/%m/%Y") + " 00:00H"
+    assert f"Fecha de generacion: {expected}" in html_text
+
+
+def test_cli_parses_dot_decimal_opening_balance(tmp_path: Path) -> None:
+    """``--opening-balance 50000.00`` must mean fifty thousand euros."""
+    path = tmp_path / "cli.xls"
+    assert main([str(path), "--zero-movements", "--opening-balance", "50000.00"]) == 0
+    df = _read_html_tables(path)[0]
+    assert df.iloc[7, 3] == "50.000,00 EUR"
+
+
+@pytest.mark.parametrize("value", ["50.000,00", "1.234", "abc", "nan"])
+def test_cli_rejects_ambiguous_opening_balance(tmp_path: Path, value: str) -> None:
+    """Amounts that are not dot-decimal with two decimals must be rejected."""
+    with pytest.raises(SystemExit):
+        main([str(tmp_path / "x.xls"), "--opening-balance", value])
 
 
 def test_accented_characters_survive(

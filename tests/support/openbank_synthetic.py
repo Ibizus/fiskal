@@ -11,12 +11,10 @@ import html
 import random
 import sys
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Final
-
-# Sentinel used to request a random seed in CLI output.
-_RANDOM_SEED_SENTINEL: Final = -1
 
 _DESCRIPTION_WIDTH: Final = 100
 _ACCOUNT_CODE_LENGTH: Final = 20
@@ -118,7 +116,6 @@ _TRANSFER_TEMPLATE_PROBABILITY: Final = 0.15
 _TRUNCATION_PROBABILITY: Final = 0.03
 _THOUSANDS_AMOUNT_PROBABILITY: Final = 0.3
 _REPEATED_ROW_PROBABILITY: Final = 0.2
-_MIN_REPEATED_ROWS: Final = 2
 
 # Invented word pools. Nothing here resembles a real merchant or person.
 _DESCRIPTORS: Final[list[str]] = [
@@ -220,62 +217,48 @@ def generate_movements(options: GenerationOptions) -> list[Movement]:
     if options.zero_movements:
         return []
 
-    count = options.movement_count
-    operation_dates_chrono = _generate_operation_dates(rng, options.start_date, count)
-
-    # When the repeated-rows edge case is requested, force at least one pair of
-    # identical rows on the same day by copying the first movement onto the
-    # second row.
-    if options.repeated_rows and count >= _MIN_REPEATED_ROWS:
-        operation_dates_chrono[1] = operation_dates_chrono[0]
-
-    amounts: list[int] = []
-    balances_chrono: list[int] = []
-
-    running_balance = options.opening_balance_minor
-    for idx, _op_date in enumerate(operation_dates_chrono):
-        amount = _generate_amount(
-            rng,
-            force_thousands=options.thousands_in_amounts,
-            income_probability=options.income_expense_mix,
-        )
-        # Make additional repeated rows share the same amount as the previous
-        # one, in addition to the guaranteed repeat of the second row.
-        if (
-            options.repeated_rows
-            and idx > 0
-            and (idx == 1 or rng.random() < _REPEATED_ROW_PROBABILITY)
-        ):
-            amount = amounts[-1]
-
-        running_balance += amount
-        amounts.append(amount)
-        balances_chrono.append(running_balance)
+    operation_dates_chrono = _generate_operation_dates(
+        rng, options.start_date, options.movement_count
+    )
 
     movements_chrono: list[Movement] = []
+    running_balance = options.opening_balance_minor
     for idx, op_date in enumerate(operation_dates_chrono):
-        value_lag = rng.randint(0, 2)
-        value_date = op_date + timedelta(days=value_lag)
-        description = _generate_description(
-            rng,
-            truncate_descriptions=options.truncate_descriptions,
-            accented_descriptions=options.accented_descriptions,
-            index=idx + 1,
-        )
+        # In repeated-rows mode the second row always repeats the first one,
+        # and later rows occasionally repeat their predecessor on the same day.
         if (
             options.repeated_rows
-            and idx > 0
+            and movements_chrono
             and (idx == 1 or rng.random() < _REPEATED_ROW_PROBABILITY)
         ):
-            description = movements_chrono[-1].description
+            previous = movements_chrono[-1]
+            operation_date = previous.operation_date
+            value_date = previous.value_date
+            description = previous.description
+            amount = previous.amount_minor
+        else:
+            operation_date = op_date
+            value_date = op_date + timedelta(days=rng.randint(0, 2))
+            description = _generate_description(
+                rng,
+                truncate_descriptions=options.truncate_descriptions,
+                accented_descriptions=options.accented_descriptions,
+                index=idx + 1,
+            )
+            amount = _generate_amount(
+                rng,
+                force_thousands=options.thousands_in_amounts,
+                income_probability=options.income_expense_mix,
+            )
 
+        running_balance += amount
         movements_chrono.append(
             Movement(
-                operation_date=op_date,
+                operation_date=operation_date,
                 value_date=value_date,
                 description=description,
-                amount_minor=amounts[idx],
-                balance_minor=balances_chrono[idx],
+                amount_minor=amount,
+                balance_minor=running_balance,
             )
         )
 
@@ -295,10 +278,23 @@ def _empty_row() -> str:
     return "<tr>" + "".join("<td>&nbsp;</td>" for _ in range(10)) + "</tr>"
 
 
-def _header_rows(options: GenerationOptions, generation_timestamp: datetime) -> str:
-    """Build the ten header rows that precede the column titles."""
+def _header_rows(options: GenerationOptions, movements: list[Movement]) -> str:
+    """Build the ten header rows that precede the column titles.
+
+    ``movements`` is in file order (newest first). The header balance is the
+    current balance, i.e. the newest row's balance, and the generation
+    timestamp is derived from the newest operation date so output stays
+    deterministic.
+    """
     account_code_formatted = _format_account_code(options.account_code)
-    header_amount = _format_money_minor(options.opening_balance_minor)
+    if movements:
+        current_balance_minor = movements[0].balance_minor
+        generation_day = movements[0].operation_date
+    else:
+        current_balance_minor = options.opening_balance_minor
+        generation_day = options.start_date
+    header_amount = _format_money_minor(current_balance_minor)
+    generation_timestamp = datetime.combine(generation_day, time())
     generated_at = generation_timestamp.strftime("%d/%m/%Y %H:%M") + "H"
 
     # Row 1: bold free-text title in col 1.
@@ -438,7 +434,7 @@ def _data_rows(
 
 def generate_statement_html(options: GenerationOptions) -> str:
     """Return the full HTML statement as a Unicode string."""
-    generation_timestamp = datetime.now()
+    movements = generate_movements(options)
 
     html_doc = (
         '\n\t<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" '
@@ -454,10 +450,10 @@ def generate_statement_html(options: GenerationOptions) -> str:
         "</head>\n"
         "<body>\n"
         "<table>\n"
-        + _header_rows(options, generation_timestamp)
+        + _header_rows(options, movements)
         + _column_title_row()
         + _data_rows(
-            generate_movements(options),
+            movements,
             extra_trailing_blank=options.extra_trailing_blank,
         )
         + "</table>\n"
@@ -500,9 +496,18 @@ def _date_value(value: str) -> date:
 
 
 def _money_minor(value: str) -> int:
-    """Argparse helper: parse a money string into minor units."""
-    cleaned = value.replace(".", "").replace(",", ".")
-    return int(round(float(cleaned) * 100))
+    """Argparse helper: parse a dot-decimal amount such as ``50000.00``."""
+    try:
+        minor = Decimal(value) * 100
+    except InvalidOperation as exc:
+        raise argparse.ArgumentTypeError(
+            "must be a dot-decimal amount such as 50000.00"
+        ) from exc
+    if not minor.is_finite() or minor != minor.to_integral_value():
+        raise argparse.ArgumentTypeError(
+            "must be a dot-decimal amount with at most two decimals"
+        )
+    return int(minor)
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -536,14 +541,14 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--opening-balance",
         type=_money_minor,
-        default=5000000,
-        help="Opening balance in major units (default: 50000.00).",
+        default="50000.00",
+        help="Opening balance before the oldest movement (default: 50000.00).",
     )
     parser.add_argument(
         "--seed",
         type=int,
-        default=_RANDOM_SEED_SENTINEL,
-        help="Random seed; omitted for a deterministic default.",
+        default=42,
+        help="Random seed (default: 42).",
     )
     parser.add_argument(
         "--truncate-descriptions",
@@ -595,13 +600,12 @@ def main(argv: list[str] | None = None) -> int:
     ):
         parser.error("--account-code must be exactly 20 digits")
 
-    seed = args.seed if args.seed != _RANDOM_SEED_SENTINEL else 42
     options = GenerationOptions(
         movement_count=args.movements,
         start_date=args.start_date,
         account_code=args.account_code,
         opening_balance_minor=args.opening_balance,
-        seed=seed,
+        seed=args.seed,
         truncate_descriptions=args.truncate_descriptions,
         repeated_rows=args.repeated_rows,
         accented_descriptions=args.accented_descriptions,
