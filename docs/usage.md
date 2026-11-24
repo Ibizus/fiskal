@@ -21,7 +21,9 @@ uv run alembic -c migrations/alembic.ini upgrade head
 ```
 
 This repository uses a temporary database by default so that migrations can be
-run safely in CI without a configured profile directory.
+run safely in CI without a configured profile directory. Set the
+`FISKAL_MIGRATION_URL` environment variable to a SQLAlchemy SQLite URL to
+migrate a different database.
 
 ## Lint and format
 

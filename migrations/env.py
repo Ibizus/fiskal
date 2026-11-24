@@ -1,12 +1,13 @@
 """Alembic environment configuration."""
 
+import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import create_engine
 
 from fiskal.db import models  # noqa: F401
 from fiskal.db.base import Base
+from fiskal.db.engine import make_engine
 
 # This is the Alembic Config object, which provides access to the values within
 # the .ini file in use.
@@ -23,10 +24,13 @@ target_metadata = Base.metadata
 def get_database_url() -> str:
     """Return a SQLite URL for running offline migrations.
 
+    The ``FISKAL_MIGRATION_URL`` environment variable overrides the default.
     Defaults to a temporary database so ``alembic upgrade head`` can run in CI
     without configuration.
     """
-    return "sqlite:///./fiskal-migration-check.db"
+    return os.environ.get(
+        "FISKAL_MIGRATION_URL", "sqlite:///./fiskal-migration-check.db"
+    )
 
 
 def run_migrations_offline() -> None:
@@ -37,6 +41,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_as_batch=True,
     )
 
     with context.begin_transaction():
@@ -46,12 +51,13 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     url = config.get_main_option("sqlalchemy.url") or get_database_url()
-    connectable = create_engine(url)
+    connectable = make_engine(url)
 
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            render_as_batch=True,
         )
         with context.begin_transaction():
             context.run_migrations()
