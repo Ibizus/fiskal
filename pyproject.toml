@@ -32,6 +32,9 @@ dev = [
     "mypy>=1.11",
     "pip-audit>=2.7",
     "types-requests>=2.32",
+    "pandas>=2.2",
+    "pandas-stubs>=2.2",
+    "lxml>=5.2",
 ]
 
 [project.scripts]
