@@ -433,10 +433,13 @@ def _data_rows(
     return "".join(rows)
 
 
-def generate_statement_html(options: GenerationOptions) -> str:
-    """Return the full HTML statement as a Unicode string."""
-    movements = generate_movements(options)
+def build_statement_html(options: GenerationOptions, movements: list[Movement]) -> str:
+    """Return the full HTML statement for the given ``movements``.
 
+    ``movements`` must be in file order (newest first). This is useful to tests
+    that need a statement whose rows differ from the deterministic generator
+    output (a corrupted balance, a changed description, and so on).
+    """
     html_doc = (
         '\n\t<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" '
         '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n'
@@ -462,6 +465,11 @@ def generate_statement_html(options: GenerationOptions) -> str:
         "</html>\n"
     )
     return html_doc
+
+
+def generate_statement_html(options: GenerationOptions) -> str:
+    """Return the full HTML statement as a Unicode string."""
+    return build_statement_html(options, generate_movements(options))
 
 
 def write_statement(
