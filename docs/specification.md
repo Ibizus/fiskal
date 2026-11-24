@@ -129,7 +129,9 @@ Main tables (field names match the v1 schema):
   `value_date`, `original_description`, `normalized_description`,
   `counterparty`, `amount_minor`, `balance_minor`, `currency_code`, `type`,
   `cost_center_id`, `category_id`, `origin` (rule / history / manual /
-  template), `status` (pending / validated), optional proration period
+  template; only meaningful once `category_id` is set — an empty `category_id`
+  means unclassified regardless of `origin`, so classification code keys off
+  `category_id`, never `origin`), `status` (pending / validated), optional proration period
   (`proration_start_date` and `proration_end_date`), `note`, `is_manual`,
   `identity_key` (unique per account). The `rule_id` field is deferred until
   the classification rules table is implemented.
@@ -162,8 +164,10 @@ columns. The logical columns are operation date, value date, description,
 amount and balance. Ten header rows precede the column titles; row indexes are
 detected by content, not hard-coded.
 
-- Parsing: sniff the container by magic bytes, then use `pandas.read_html`;
-  `xlrd` and `read_excel` cannot open this format.
+- Parsing: sniff the container by magic bytes, then parse the table with the
+  standard library's HTML parser (`html.parser`); `xlrd` and `read_excel`
+  cannot open this format. pandas is not a runtime dependency and is used only
+  by tests, if at all.
 - Dates: `dd/mm/yyyy` as text.
 - Amounts: text with comma decimals, dot thousands, leading minus for expenses,
   no currency symbol.
@@ -193,7 +197,9 @@ detected by content, not hard-coded.
 - Duplicate handling: a transaction that reappears in an overlapping import with a
   slightly different description text is treated as a duplicate when account,
   date, amount and balance match. The import summary reports the text
-  difference; nothing is created or modified.
+  difference as structured fields (the stored and the incoming description,
+  both already masked); nothing is created or modified, and neither text is
+  written to logs or error messages.
 
 ### Import summary
 
