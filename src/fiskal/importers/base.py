@@ -137,32 +137,33 @@ _DIGIT_GROUP_RE = re.compile(r"\d+")
 
 
 def _mask_grouped_run(match: re.Match[str]) -> str:
-    """Mask every window of consecutive digit groups holding 13-19 digits.
+    """Mask every digit group that can belong to a 13-19 digit card number.
 
-    Windows are taken left to right, each as short as possible, so a card
-    number followed or preceded by unrelated digit groups is still masked and
-    the unrelated groups are kept.
+    Every window of consecutive groups is tried. A group is marked when any
+    window holding 13-19 digits contains it, and each contiguous span of
+    marked groups is replaced with its last four digits. Over-masking a
+    neighbouring reference is accepted so no card number can survive.
     """
     token = match.group(0)
     groups = list(_DIGIT_GROUP_RE.finditer(token))
-    windows: list[tuple[int, int]] = []
-    start = 0
-    while start < len(groups):
+    marked = [False] * len(groups)
+    for start in range(len(groups)):
         total = 0
-        end = start
-        while (
-            end < len(groups)
-            and total < _CARD_MIN_DIGITS
-            and len(groups[end].group(0)) <= _CARD_MAX_DIGITS
-        ):
+        for end in range(start, len(groups)):
             total += len(groups[end].group(0))
-            end += 1
-        if _CARD_MIN_DIGITS <= total <= _CARD_MAX_DIGITS:
-            windows.append((start, end - 1))
-            start = end
+            if total > _CARD_MAX_DIGITS:
+                break
+            if total >= _CARD_MIN_DIGITS:
+                marked[start : end + 1] = [True] * (end + 1 - start)
+    spans: list[tuple[int, int]] = []
+    for index, is_marked in enumerate(marked):
+        if not is_marked:
+            continue
+        if spans and spans[-1][1] == index - 1:
+            spans[-1] = (spans[-1][0], index)
         else:
-            start += 1
-    for first, last in reversed(windows):
+            spans.append((index, index))
+    for first, last in reversed(spans):
         window = token[groups[first].start() : groups[last].end()]
         digits = "".join(char for char in window if char.isdigit())
         token = (

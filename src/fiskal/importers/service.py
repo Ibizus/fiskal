@@ -33,8 +33,8 @@ from fiskal.importers.base import (
     field_values,
 )
 
-# A transaction is income when its amount is not negative. Classification will
-# refine this provisional, sign-based value once the rules engine lands.
+# Imported movements are unclassified, so origin only holds a placeholder. It
+# means something once category_id is set; classification keys off category_id.
 _ORIGIN_PLACEHOLDER = ClassificationOrigin.MANUAL.value
 
 

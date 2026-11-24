@@ -146,13 +146,15 @@ def test_mask_card_numbers() -> None:
     # A 20-digit account code is not a card number.
     assert mask_card_numbers(f"account {_ACCOUNT_CODE}") == f"account {_ACCOUNT_CODE}"
     dashed = "-".join((card[:4], card[4:8], card[8:12], card[12:]))
-    # Extra digit groups next to a grouped card never hide it from masking.
-    assert mask_card_numbers(f"CARD {grouped} 2024 SHOP") == (
-        f"CARD {card[-4:]} 2024 SHOP"
-    )
-    assert mask_card_numbers(f"CARD {dashed} 1234 REF") == f"CARD {card[-4:]} 1234 REF"
-    assert mask_card_numbers(f"CARD {grouped} 12 EUR") == f"CARD {card[-4:]} 12 EUR"
+    # Digit groups next to a grouped card may be masked with it, but no window
+    # of the card's digits survives.
+    assert mask_card_numbers(f"CARD {grouped} 2024 SHOP") == "CARD 2024 SHOP"
+    assert mask_card_numbers(f"CARD {dashed} 1234 REF") == "CARD 1234 REF"
+    assert mask_card_numbers(f"CARD {grouped} 12 EUR") == (f"CARD {card[-2:]}12 EUR")
     assert mask_card_numbers(f"PAY 1 {card}") == f"PAY 1 {card[-4:]}"
+    assert mask_card_numbers(f"ORDER 1234567890 {grouped}") == (f"ORDER {card[-4:]}")
+    assert mask_card_numbers(f"TEL 612345678 {dashed} X") == f"TEL {card[-4:]} X"
+    assert mask_card_numbers(f"A 12 {grouped}") == f"A {card[-4:]}"
     # An already-masked bank card is left alone.
     assert mask_card_numbers("DEMO CARD 1234 56** **** 7890") == (
         "DEMO CARD 1234 56** **** 7890"
@@ -391,9 +393,7 @@ def test_near_duplicate_summary_holds_only_masked_text(
 
     (near_duplicate,) = result.summary.near_duplicates
     assert near_duplicate.stored_description == f"Card purchase Shop A {card[-4:]}"
-    assert near_duplicate.incoming_description == (
-        f"Card purchase Shop B {card[-4:]} 2024"
-    )
+    assert near_duplicate.incoming_description == "Card purchase Shop B 2024"
     reported = (
         near_duplicate.stored_description,
         near_duplicate.incoming_description,
