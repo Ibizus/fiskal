@@ -266,8 +266,8 @@ class OpenbankImporter(Importer):
         amount_minor = parse_amount_minor(cells[3])
         balance_minor = parse_amount_minor(cells[4])
 
-        original = mask_card_numbers(cells[2]).rstrip()
-        truncated = len(original) == _DESCRIPTION_WIDTH
+        truncated = len(cells[2]) == _DESCRIPTION_WIDTH
+        original = mask_card_numbers(cells[2])
         normalized = normalize_description(original)
         counterparty = extract_counterparty(original)
 

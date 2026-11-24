@@ -160,6 +160,11 @@ class Transaction(Base):
     immutable by design. ``cost_center_id``, ``category_id``, ``origin``,
     ``status``, ``proration_start_date``, ``proration_end_date`` and ``note``
     are editable classification metadata.
+
+    ``origin`` is only meaningful once ``category_id`` is set: an empty
+    ``category_id`` means the transaction is unclassified, whatever ``origin``
+    holds (imports store a placeholder). Classification code must key off
+    ``category_id``, never off ``origin``.
     """
 
     __tablename__ = "transactions"

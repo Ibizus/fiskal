@@ -47,6 +47,18 @@ class ParsedStatement:
 
 
 @dataclass(frozen=True)
+class NearDuplicate:
+    """A skipped movement that differs from a loaded one only in its text.
+
+    Both descriptions were masked at the importer boundary, so neither can
+    hold a full card number.
+    """
+
+    stored_description: str
+    incoming_description: str
+
+
+@dataclass(frozen=True)
 class ImportSummary:
     """The summary reported to the user after an import."""
 
@@ -57,6 +69,7 @@ class ImportSummary:
     duplicate_count: int
     truncated_count: int
     warnings: tuple[str, ...]
+    near_duplicates: tuple[NearDuplicate, ...]
 
     @property
     def adds_no_movement(self) -> bool:
@@ -114,20 +127,47 @@ def build_match_key(values: tuple[object, ...]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-# A card number has 13-19 digits, contiguous or separated by spaces/dashes.
-# Account codes (20 digits) and IBANs are intentionally not matched here.
+# A card number has 13-19 digits, contiguous or split into groups separated by
+# spaces or dashes. An unbroken 20-digit account code is never a card number.
 _CARD_MIN_DIGITS: Final = 13
 _CARD_MAX_DIGITS: Final = 19
 _CARD_DIGIT_RUN_RE = re.compile(r"(?<!\d)\d{13,19}(?!\d)")
-_CARD_GROUPED_RE = re.compile(r"\b\d[\d\s-]{10,25}\d\b")
+_DIGIT_GROUP_RUN_RE = re.compile(r"(?<!\d)\d+(?:[\s-]+\d+)+(?!\d)")
+_DIGIT_GROUP_RE = re.compile(r"\d+")
 
 
-def _mask_card_match(match: re.Match[str]) -> str:
-    """Replace a matched card-like token with its last four digits."""
+def _mask_grouped_run(match: re.Match[str]) -> str:
+    """Mask every window of consecutive digit groups holding 13-19 digits.
+
+    Windows are taken left to right, each as short as possible, so a card
+    number followed or preceded by unrelated digit groups is still masked and
+    the unrelated groups are kept.
+    """
     token = match.group(0)
-    digits = "".join(char for char in token if char.isdigit())
-    if _CARD_MIN_DIGITS <= len(digits) <= _CARD_MAX_DIGITS:
-        return digits[-4:]
+    groups = list(_DIGIT_GROUP_RE.finditer(token))
+    windows: list[tuple[int, int]] = []
+    start = 0
+    while start < len(groups):
+        total = 0
+        end = start
+        while (
+            end < len(groups)
+            and total < _CARD_MIN_DIGITS
+            and len(groups[end].group(0)) <= _CARD_MAX_DIGITS
+        ):
+            total += len(groups[end].group(0))
+            end += 1
+        if _CARD_MIN_DIGITS <= total <= _CARD_MAX_DIGITS:
+            windows.append((start, end - 1))
+            start = end
+        else:
+            start += 1
+    for first, last in reversed(windows):
+        window = token[groups[first].start() : groups[last].end()]
+        digits = "".join(char for char in window if char.isdigit())
+        token = (
+            token[: groups[first].start()] + digits[-4:] + token[groups[last].end() :]
+        )
     return token
 
 
@@ -135,10 +175,10 @@ def mask_card_numbers(text: str) -> str:
     """Replace any 13-19 digit card number with its last four digits.
 
     Handles both contiguous digit runs and groups separated by spaces or
-    dashes. A 20-digit account code is left untouched.
+    dashes. An unbroken 20-digit account code is left untouched.
     """
-    masked = _CARD_GROUPED_RE.sub(_mask_card_match, text)
-    return _CARD_DIGIT_RUN_RE.sub(lambda match: match.group(0)[-4:], masked)
+    masked = _CARD_DIGIT_RUN_RE.sub(lambda match: match.group(0)[-4:], text)
+    return _DIGIT_GROUP_RUN_RE.sub(_mask_grouped_run, masked)
 
 
 class Importer(ABC):

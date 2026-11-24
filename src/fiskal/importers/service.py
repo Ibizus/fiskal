@@ -10,6 +10,7 @@ to the import feature.
 from __future__ import annotations
 
 import hashlib
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
@@ -27,6 +28,7 @@ from fiskal.importers.base import (
     ImportResult,
     ImportRevertError,
     ImportSummary,
+    NearDuplicate,
     build_match_key,
     field_values,
 )
@@ -36,26 +38,23 @@ from fiskal.importers.base import (
 _ORIGIN_PLACEHOLDER = ClassificationOrigin.MANUAL.value
 
 
-def _newest(transactions: list[Transaction]) -> Transaction | None:
-    """Return the chronologically newest loaded movement, or None."""
+def _latest_day_balances(
+    transactions: list[Transaction],
+) -> tuple[date, set[int]] | None:
+    """Return the latest loaded operation date and the balances reached on it.
+
+    Several movements can share a date and their stored order is not kept, so
+    every balance reached on that date is a candidate closing balance.
+    """
     if not transactions:
         return None
-    return max(
-        transactions,
-        key=lambda txn: (txn.operation_date, txn.value_date, txn.balance_minor or 0),
-    )
-
-
-def _oldest(
-    transactions: tuple[ImportedTransaction, ...],
-) -> ImportedTransaction | None:
-    """Return the chronologically oldest movement in a parsed file, or None."""
-    if not transactions:
-        return None
-    return min(
-        transactions,
-        key=lambda txn: (txn.operation_date, txn.value_date, txn.balance_minor),
-    )
+    latest = max(txn.operation_date for txn in transactions)
+    balances = {
+        txn.balance_minor
+        for txn in transactions
+        if txn.operation_date == latest and txn.balance_minor is not None
+    }
+    return latest, balances
 
 
 def _to_transaction(
@@ -108,26 +107,26 @@ def import_statement(
         ).scalars()
     )
     existing_identity_keys = {existing_txn.identity_key for existing_txn in existing}
-    # A near-duplicate shares date, amount and balance but differs only in its
-    # description text. Track descriptions per match key so genuinely identical
-    # rows inside one file (kept distinct by the occurrence counter) still
-    # import, while a changed description is treated as a duplicate.
-    existing_match_descriptions: dict[str, set[str]] = {}
+    # A near-duplicate shares date, amount and balance with an already-loaded
+    # movement but differs only in its description text. Only loaded movements
+    # feed this map: rows of the same file never make each other duplicates.
+    existing_match_descriptions: dict[str, list[str]] = {}
     for existing_txn in existing:
         match_key = build_match_key(field_values(existing_txn, importer.match_fields))
-        existing_match_descriptions.setdefault(match_key, set()).add(
+        existing_match_descriptions.setdefault(match_key, []).append(
             existing_txn.original_description
         )
 
     new_transactions: list[ImportedTransaction] = []
     duplicate_count = 0
     warnings: list[str] = []
+    near_duplicates: list[NearDuplicate] = []
 
     for txn in transactions:
-        match_key = build_match_key(field_values(txn, importer.match_fields))
         if txn.identity_key in existing_identity_keys:
             duplicate_count += 1
             continue
+        match_key = build_match_key(field_values(txn, importer.match_fields))
         descriptions = existing_match_descriptions.get(match_key)
         if descriptions is not None and txn.original_description not in descriptions:
             duplicate_count += 1
@@ -135,12 +134,15 @@ def import_statement(
                 "a movement matches an already-loaded movement except for its "
                 "description text; it was not added again"
             )
+            near_duplicates.append(
+                NearDuplicate(
+                    stored_description=descriptions[0],
+                    incoming_description=txn.original_description,
+                )
+            )
             continue
         new_transactions.append(txn)
         existing_identity_keys.add(txn.identity_key)
-        existing_match_descriptions.setdefault(match_key, set()).add(
-            txn.original_description
-        )
 
     continuity_ok = _check_continuity(existing, transactions, warnings)
 
@@ -177,6 +179,7 @@ def import_statement(
         duplicate_count=duplicate_count,
         truncated_count=sum(1 for txn in transactions if txn.truncated),
         warnings=tuple(warnings),
+        near_duplicates=tuple(near_duplicates),
     )
     return ImportResult(
         import_id=import_row.id,
@@ -205,20 +208,20 @@ def _check_continuity(
 
     # Gap between the newest loaded movement and the oldest movement in the
     # new file. Only checked when the file extends beyond loaded history.
-    newest_loaded = _newest(existing)
-    oldest_new = _oldest(transactions)
-    if (
-        newest_loaded is not None
-        and oldest_new is not None
-        and oldest_new.operation_date > newest_loaded.operation_date
-        and newest_loaded.balance_minor is not None
-        and newest_loaded.balance_minor + oldest_new.amount_minor
-        != oldest_new.balance_minor
-    ):
-        continuity_ok = False
-        warnings.append(
-            "gap detected between the loaded history and the movements in this file"
-        )
+    latest_loaded = _latest_day_balances(existing)
+    if latest_loaded is not None and transactions:
+        latest_date, closing_balances = latest_loaded
+        oldest_new = transactions[-1]
+        if (
+            oldest_new.operation_date > latest_date
+            and closing_balances
+            and oldest_new.balance_minor - oldest_new.amount_minor
+            not in closing_balances
+        ):
+            continuity_ok = False
+            warnings.append(
+                "gap detected between the loaded history and the movements in this file"
+            )
 
     return continuity_ok
 

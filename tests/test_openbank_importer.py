@@ -36,6 +36,7 @@ from fiskal.importers.openbank import (
 )
 from tests.support.openbank_synthetic import (
     GenerationOptions,
+    Movement,
     build_statement_html,
     generate_movements,
     write_statement,
@@ -78,6 +79,17 @@ def default_options() -> GenerationOptions:
 def _fake_card_number() -> str:
     """Build a 16-digit card number without a literal 13-19 digit run."""
     return "".join(str((i * 7 + 3) % 10) for i in range(16))
+
+
+def _movement(day: date, description: str, amount: int, balance: int) -> Movement:
+    """Build one padded synthetic movement."""
+    return Movement(
+        operation_date=day,
+        value_date=day,
+        description=description.ljust(100),
+        amount_minor=amount,
+        balance_minor=balance,
+    )
 
 
 def _write_custom_statement(options: GenerationOptions, movements, path: Path) -> Path:
@@ -133,6 +145,14 @@ def test_mask_card_numbers() -> None:
     assert mask_card_numbers(f"buy {grouped} end") == f"buy {card[-4:]} end"
     # A 20-digit account code is not a card number.
     assert mask_card_numbers(f"account {_ACCOUNT_CODE}") == f"account {_ACCOUNT_CODE}"
+    dashed = "-".join((card[:4], card[4:8], card[8:12], card[12:]))
+    # Extra digit groups next to a grouped card never hide it from masking.
+    assert mask_card_numbers(f"CARD {grouped} 2024 SHOP") == (
+        f"CARD {card[-4:]} 2024 SHOP"
+    )
+    assert mask_card_numbers(f"CARD {dashed} 1234 REF") == f"CARD {card[-4:]} 1234 REF"
+    assert mask_card_numbers(f"CARD {grouped} 12 EUR") == f"CARD {card[-4:]} 12 EUR"
+    assert mask_card_numbers(f"PAY 1 {card}") == f"PAY 1 {card[-4:]}"
     # An already-masked bank card is left alone.
     assert mask_card_numbers("DEMO CARD 1234 56** **** 7890") == (
         "DEMO CARD 1234 56** **** 7890"
@@ -339,6 +359,89 @@ def test_text_difference_is_duplicate_with_warning(
     assert result.summary.duplicate_count == len(movements)
     assert any("description" in warning for warning in result.summary.warnings)
     assert session.query(Transaction).count() == len(movements)
+    (near_duplicate,) = result.summary.near_duplicates
+    assert near_duplicate.stored_description == movements[0].description.rstrip()
+    assert near_duplicate.incoming_description == changed[0].description.rstrip()
+
+
+def test_near_duplicate_summary_holds_only_masked_text(
+    session, account, default_options, tmp_path
+) -> None:
+    """The reported text difference never carries a card number or account code."""
+    card = _fake_card_number()
+    grouped = f"{card[:4]} {card[4:8]} {card[8:12]} {card[12:]}"
+    day = date(2024, 3, 1)
+    first = _write_custom_statement(
+        default_options,
+        [_movement(day, f"Card purchase Shop A {card}", -1_000, 9_000)],
+        tmp_path / "first.xls",
+    )
+    import_statement(
+        session, OpenbankImporter(), account, "first.xls", first.read_bytes()
+    )
+    second = _write_custom_statement(
+        default_options,
+        [_movement(day, f"Card purchase Shop B {grouped} 2024", -1_000, 9_000)],
+        tmp_path / "second.xls",
+    )
+
+    result = import_statement(
+        session, OpenbankImporter(), account, "second.xls", second.read_bytes()
+    )
+
+    (near_duplicate,) = result.summary.near_duplicates
+    assert near_duplicate.stored_description == f"Card purchase Shop A {card[-4:]}"
+    assert near_duplicate.incoming_description == (
+        f"Card purchase Shop B {card[-4:]} 2024"
+    )
+    reported = (
+        near_duplicate.stored_description,
+        near_duplicate.incoming_description,
+        *result.summary.warnings,
+    )
+    for text in reported:
+        digits = "".join(char for char in text if char.isdigit())
+        assert card not in digits
+        assert _ACCOUNT_CODE not in digits
+
+
+def test_same_file_rows_are_never_near_duplicates(
+    session, account, default_options, tmp_path
+) -> None:
+    """Rows of one file that differ only in text are all imported on first load."""
+    day = date(2024, 3, 1)
+    movements = [
+        _movement(day, "Card purchase Shop B", -1_000, 9_000),
+        _movement(day, "Refund Shop A", 1_000, 10_000),
+        _movement(day, "Card purchase Shop A", -1_000, 9_000),
+    ]
+    path = _write_custom_statement(default_options, movements, tmp_path / "day.xls")
+
+    result = import_statement(
+        session, OpenbankImporter(), account, "day.xls", path.read_bytes()
+    )
+
+    assert result.summary.new_count == len(movements)
+    assert result.summary.duplicate_count == 0
+    assert result.summary.near_duplicates == ()
+    assert session.query(Transaction).count() == len(movements)
+
+
+def test_imported_rows_are_unclassified_and_pending(
+    session, account, default_options, tmp_path
+) -> None:
+    """An imported movement has no category and waits for validation."""
+    path = tmp_path / "statement.xls"
+    write_statement(default_options, path)
+    import_statement(
+        session, OpenbankImporter(), account, "statement.xls", path.read_bytes()
+    )
+
+    stored = session.query(Transaction).all()
+    assert stored
+    for txn in stored:
+        assert txn.category_id is None
+        assert txn.status == TransactionStatus.PENDING.value
 
 
 def test_gap_between_files_is_warning(
@@ -366,6 +469,41 @@ def test_gap_between_files_is_warning(
     )
 
     assert any("gap" in warning for warning in result.summary.warnings)
+
+
+def test_same_day_movements_do_not_fake_a_gap(
+    session, account, default_options, tmp_path
+) -> None:
+    """Several movements on one day are not mistaken for a gap in history."""
+    first = _write_custom_statement(
+        default_options,
+        [
+            _movement(date(2024, 3, 1), "Payment Fictional B", -5_000, 100_000),
+            _movement(date(2024, 3, 1), "Transfer Fictional A", 5_000, 105_000),
+            _movement(date(2024, 3, 1), "Payment Fictional C", -5_000, 100_000),
+        ][::-1],
+        tmp_path / "first.xls",
+    )
+    import_statement(
+        session, OpenbankImporter(), account, "first.xls", first.read_bytes()
+    )
+    second = _write_custom_statement(
+        default_options,
+        [
+            _movement(date(2024, 3, 2), "Payment Fictional E", -5_000, 105_000),
+            _movement(date(2024, 3, 2), "Transfer Fictional D", 10_000, 110_000),
+        ],
+        tmp_path / "second.xls",
+    )
+
+    result = import_statement(
+        session, OpenbankImporter(), account, "second.xls", second.read_bytes()
+    )
+
+    assert not any("gap" in warning for warning in result.summary.warnings)
+    import_row = session.get(Import, result.import_id)
+    assert import_row is not None
+    assert import_row.continuity_ok is True
 
 
 def test_incoherent_balance_is_warning(
@@ -397,6 +535,22 @@ def test_truncated_descriptions_are_counted(
     )
 
     assert 0 < result.summary.truncated_count <= options.movement_count
+
+
+def test_truncated_description_with_card_is_counted(default_options, tmp_path) -> None:
+    """A 100-character description is flagged even after its card is masked."""
+    card = _fake_card_number()
+    description = f"Card purchase {card} ".ljust(100, "X")
+    path = _write_custom_statement(
+        default_options,
+        [_movement(date(2024, 3, 1), description, -1_000, 9_000)],
+        tmp_path / "card.xls",
+    )
+
+    (txn,) = OpenbankImporter().parse(path.read_bytes()).transactions
+
+    assert txn.truncated is True
+    assert card not in txn.original_description
 
 
 def test_no_full_card_or_account_code_is_stored(

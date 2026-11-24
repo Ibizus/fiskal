@@ -56,7 +56,8 @@ After an import Fiskal reports a summary with:
   limit and may have been cut short by the bank.
 - **Warnings** — balance-continuity notices (a gap in history or an incoherent
   running balance) and movements skipped because their description differed
-  slightly from an already-loaded movement.
+  slightly from an already-loaded movement; for each of those the summary shows
+  the stored and the incoming description.
 - An **alert** when the file added no new movement at all.
 
 Re-importing the same or an overlapping file is safe: nothing is ever

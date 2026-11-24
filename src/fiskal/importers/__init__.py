@@ -13,6 +13,7 @@ from fiskal.importers.base import (
     ImportResult,
     ImportRevertError,
     ImportSummary,
+    NearDuplicate,
     ParsedStatement,
 )
 from fiskal.importers.openbank import OpenbankImporter
@@ -25,6 +26,7 @@ __all__ = [
     "ImportedTransaction",
     "Importer",
     "ImporterError",
+    "NearDuplicate",
     "OpenbankImporter",
     "ParsedStatement",
     "import_statement",
