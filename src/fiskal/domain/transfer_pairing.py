@@ -25,7 +25,6 @@ class TransferCandidate:
     value_date: date
     amount_minor: int
     currency_code: str
-    is_paired: bool = False
 
 
 @dataclass(frozen=True)
@@ -77,12 +76,8 @@ class TransferPairing:
         proposals: list[PairProposal] = []
 
         for source in sources:
-            if source.is_paired:
-                continue
             for candidate in pool:
                 if candidate.id == source.id:
-                    continue
-                if candidate.is_paired:
                     continue
                 if candidate.account_id == source.account_id:
                     continue

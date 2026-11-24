@@ -23,7 +23,6 @@ from fiskal.db.engine import make_engine
 from fiskal.db.models import (
     Account,
     Category,
-    ClosedMonth,
     CostCenter,
     Import,
     RejectedPair,
@@ -381,22 +380,11 @@ def _seed_rejected_pair(session: Session) -> None:
     session.commit()
 
 
-def _seed_closed_month(session: Session) -> None:
-    session.add(
-        ClosedMonth(
-            account_id=_make_account(session).id,
-            month=date(2024, 3, 1),
-        )
-    )
-    session.commit()
-
-
 @pytest.mark.parametrize(
     "seed",
     [
         _seed_paired_transactions,
         _seed_rejected_pair,
-        _seed_closed_month,
     ],
 )
 def test_downgrade_with_pairing_data_is_refused(tmp_path: Path, seed: Any) -> None:
@@ -415,6 +403,35 @@ def test_downgrade_with_pairing_data_is_refused(tmp_path: Path, seed: Any) -> No
     current = _run_alembic(db_path, "current")
     assert "694949b009bf (head)" in current.stdout
     _run_alembic(db_path, "check")
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [
+        _seed_transaction,
+        _seed_import,
+        _make_account,
+        _make_category,
+        _make_cost_center,
+    ],
+)
+def test_core_downgrade_with_rows_is_refused(tmp_path: Path, seed: Any) -> None:
+    """Downgrading the core data model on a populated database is refused."""
+    db_path = tmp_path / "populated.db"
+    _run_alembic(db_path, "upgrade", "head")
+    session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
+    seed(session)
+    session.close()
+    _run_alembic(db_path, "downgrade", "01d213a4aac2")
+    tables_before = _table_names(db_path)
+
+    result = _run_alembic(db_path, "downgrade", "c82da8d3d961", check=False)
+
+    assert result.returncode != 0
+    assert "empty database" in result.stderr
+    assert _table_names(db_path) == tables_before
+    current = _run_alembic(db_path, "current")
+    assert "01d213a4aac2" in current.stdout
 
 
 def test_downgrade_on_empty_database_restores_placeholder(tmp_path: Path) -> None:

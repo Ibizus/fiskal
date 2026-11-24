@@ -3,18 +3,18 @@
 This module bridges the framework-free pairing logic in
 ``fiskal.domain.transfer_pairing`` with the SQLAlchemy models. It owns
 proposal lookup, confirmation, rejection, unpairing and the guards that keep
-pairing from touching closed or validated data.
+pairing from touching validated data.
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from fiskal.db.models import ClosedMonth, RejectedPair, Transaction
+from fiskal.db.models import RejectedPair, Transaction
 from fiskal.domain.enums import (
     ClassificationOrigin,
     TransactionStatus,
@@ -39,24 +39,6 @@ def _type_from_amount(amount_minor: int) -> TransactionType:
     return TransactionType.INCOME if amount_minor >= 0 else TransactionType.EXPENSE
 
 
-def _month_start(day: date) -> date:
-    """Return the first day of the month containing ``day``."""
-    return day.replace(day=1)
-
-
-def _is_month_closed(session: Session, account_id: UUID, day: date) -> bool:
-    """Return True when ``day``'s month is closed for ``account_id``."""
-    month = _month_start(day)
-    return bool(
-        session.scalar(
-            select(ClosedMonth).where(
-                ClosedMonth.account_id == account_id,
-                ClosedMonth.month == month,
-            )
-        )
-    )
-
-
 def _rejections_for(
     session: Session, transaction_ids: set[UUID]
 ) -> set[frozenset[UUID]]:
@@ -74,20 +56,27 @@ def _rejections_for(
     }
 
 
-def _load_available_transactions(
-    session: Session, excluded_ids: set[UUID] | None = None
+def _load_candidates(
+    session: Session, sources: list[Transaction], window_days: int
 ) -> list[Transaction]:
-    """Load transactions that may appear as pairing candidates.
+    """Load transactions that may be the counterpart of any of ``sources``.
 
-    Paired transactions are excluded because a transaction can only belong to
-    one pair.
+    Only unpaired, pending rows outside the sources that could match on
+    amount, currency and value-date window are loaded.
     """
-    excluded_ids = excluded_ids or set()
+    window = timedelta(days=window_days)
     return list(
         session.execute(
             select(Transaction).where(
                 Transaction.paired_transaction_id.is_(None),
-                Transaction.id.notin_(excluded_ids),
+                Transaction.status != TransactionStatus.VALIDATED.value,
+                Transaction.id.notin_({txn.id for txn in sources}),
+                Transaction.currency_code.in_({txn.currency_code for txn in sources}),
+                Transaction.amount_minor.in_({-txn.amount_minor for txn in sources}),
+                Transaction.value_date
+                >= min(txn.value_date for txn in sources) - window,
+                Transaction.value_date
+                <= max(txn.value_date for txn in sources) + window,
             )
         ).scalars()
     )
@@ -100,7 +89,6 @@ def _to_candidate(transaction: Transaction) -> TransferCandidate:
         value_date=transaction.value_date,
         amount_minor=transaction.amount_minor,
         currency_code=transaction.currency_code,
-        is_paired=False,
     )
 
 
@@ -112,8 +100,8 @@ def find_proposals_for_transaction_ids(
 ) -> list[PairProposal]:
     """Propose counterpart candidates for the given transactions.
 
-    Candidates are loaded from the whole profile. Already paired transactions
-    and explicitly rejected pairs are excluded.
+    Candidates are loaded from the whole profile. Already paired or validated
+    transactions and explicitly rejected pairs are excluded.
     """
     source_ids = set(transaction_ids)
     if not source_ids:
@@ -121,19 +109,22 @@ def find_proposals_for_transaction_ids(
 
     sources = list(
         session.execute(
-            select(Transaction).where(Transaction.id.in_(source_ids))
+            select(Transaction).where(
+                Transaction.id.in_(source_ids),
+                Transaction.paired_transaction_id.is_(None),
+                Transaction.status != TransactionStatus.VALIDATED.value,
+            )
         ).scalars()
     )
+    if not sources:
+        return []
 
     rejected = _rejections_for(session, source_ids)
 
-    candidates = _load_available_transactions(session, excluded_ids=source_ids)
-    candidate_pool: list[TransferCandidate] = []
-    source_candidates: list[TransferCandidate] = []
-    for txn in sources:
-        source_candidates.append(_to_candidate(txn))
-    for txn in candidates:
-        candidate_pool.append(_to_candidate(txn))
+    source_candidates = [_to_candidate(txn) for txn in sources]
+    candidate_pool = [
+        _to_candidate(txn) for txn in _load_candidates(session, sources, window_days)
+    ]
 
     pairing = TransferPairing(window_days=window_days)
     raw_proposals = pairing.propose(source_candidates, candidate_pool)
@@ -170,15 +161,6 @@ def _require_pairable(left: Transaction, right: Transaction) -> None:
         raise PairingError("amounts must be opposite")
 
 
-def _require_not_closed(session: Session, *transactions: Transaction) -> None:
-    """Raise if any transaction belongs to a closed month."""
-    for txn in transactions:
-        if _is_month_closed(session, txn.account_id, txn.operation_date):
-            raise PairingError(
-                f"transaction {txn.id} belongs to a closed month and cannot be paired"
-            )
-
-
 def _require_pending(*transactions: Transaction) -> None:
     """Raise if any transaction is already validated."""
     for txn in transactions:
@@ -203,18 +185,11 @@ def confirm_pair(session: Session, left_id: UUID, right_id: UUID) -> None:
         raise PairingError("one of the transactions is already paired")
 
     _require_pairable(left, right)
-    _require_not_closed(session, left, right)
     _require_pending(left, right)
 
     # Remove any previous rejection for this pair so the same row can be paired
     # later if the user changes their mind.
     ordered = _ordered_ids(left_id, right_id)
-    session.execute(
-        select(RejectedPair).where(
-            RejectedPair.left_transaction_id == ordered[0],
-            RejectedPair.right_transaction_id == ordered[1],
-        )
-    )
     rejected = session.get(
         RejectedPair,
         {"left_transaction_id": ordered[0], "right_transaction_id": ordered[1]},
@@ -267,7 +242,6 @@ def unpair(session: Session, left_id: UUID, right_id: UUID) -> None:
     if left.paired_transaction_id != right.id or right.paired_transaction_id != left.id:
         raise PairingError("transactions are not paired with each other")
 
-    _require_not_closed(session, left, right)
     _require_pending(left, right)
 
     left.paired_transaction_id = None

@@ -257,29 +257,3 @@ class RejectedPair(Base):
         DateTime,
         default=lambda: datetime.now(UTC),
     )
-
-
-class ClosedMonth(Base):
-    """A month that has been explicitly closed for an account.
-
-    Nothing may be imported or reclassified in a closed month until it is
-    reopened. The month is stored as the first day of the month.
-    """
-
-    __tablename__ = "closed_months"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    account_id: Mapped[UUID] = mapped_column(ForeignKey("accounts.id"))
-    month: Mapped[date] = mapped_column(Date)
-    closed_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=lambda: datetime.now(UTC),
-    )
-
-    __table_args__ = (
-        UniqueConstraint(
-            "account_id",
-            "month",
-            name="uq_closed_months_account_month",
-        ),
-    )

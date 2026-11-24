@@ -239,8 +239,8 @@ loaded, under 5% of a month's transactions reach the manual queue.
    proposal links both sides and marks them as `internal_transfer` so merged
    views do not double count them; rejecting remembers the decision; undoing a
    confirmed pair restores both sides to unclassified/pending. Pairing cannot
-   be confirmed or undone when either side belongs to a closed month or is
-   already validated. Full account numbers are never stored.
+   be confirmed or undone when either side is already validated, and validated
+   transactions are never proposed. Full account numbers are never stored.
 3. Deterministic rules by priority: first match assigns type, cost center and
    category. Conditions: "contains" on the normalized description/counterparty,
    optional amount range, optional day-of-month range. Regular expressions are
@@ -336,7 +336,9 @@ are a query layer on top and require no model change.
 
 A month can be closed by hand once the review is done. In a closed month
 nothing can be imported or reclassified until the month is explicitly reopened,
-and the reopening is recorded.
+and the reopening is recorded. The month-close task must also guard internal
+transfer pairing: transactions in a closed month are not proposed, and pairs
+that touch a closed month cannot be confirmed or undone.
 
 ## Bulk history import
 

@@ -13,13 +13,13 @@ import hashlib
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from fiskal.classification.pairing_service import (
     find_proposals_for_transaction_ids,
 )
-from fiskal.db.models import Account, Import, Transaction
+from fiskal.db.models import Account, Import, RejectedPair, Transaction
 from fiskal.domain.enums import (
     ClassificationOrigin,
     TransactionStatus,
@@ -189,7 +189,7 @@ def import_statement(
         truncated_count=sum(1 for txn in transactions if txn.truncated),
         warnings=tuple(warnings),
         near_duplicates=tuple(near_duplicates),
-        proposed_pair_count=len(pair_proposals),
+        proposed_pair_count=len({p.source_id for p in pair_proposals}),
     )
     return ImportResult(
         import_id=import_row.id,
@@ -241,8 +241,9 @@ def revert_import(session: Session, import_id: UUID) -> None:
     """Delete an import and all its transactions, when allowed.
 
     An import can only be reverted while none of its transactions has been
-    validated. The closed-month guard will be added with the month-close
-    feature; there is no month-close table yet.
+    validated or paired as an internal transfer; rejected pair decisions that
+    involve its transactions are deleted with them. The closed-month guard
+    will be added with the month-close feature.
     """
     import_row = session.get(Import, import_id)
     if import_row is None:
@@ -258,7 +259,18 @@ def revert_import(session: Session, import_id: UUID) -> None:
             raise ImportRevertError(
                 "cannot revert an import that contains validated transactions"
             )
+        if txn.paired_transaction_id is not None:
+            raise ImportRevertError(
+                "cannot revert an import that contains paired transactions"
+            )
 
+    transaction_ids = [txn.id for txn in transactions]
+    session.execute(
+        delete(RejectedPair).where(
+            RejectedPair.left_transaction_id.in_(transaction_ids)
+            | RejectedPair.right_transaction_id.in_(transaction_ids)
+        )
+    )
     for txn in transactions:
         session.delete(txn)
     session.flush()

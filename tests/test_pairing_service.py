@@ -16,7 +16,7 @@ from fiskal.classification.pairing_service import (
 )
 from fiskal.db.base import Base
 from fiskal.db.engine import make_engine
-from fiskal.db.models import Account, ClosedMonth, Transaction
+from fiskal.db.models import Account, Transaction
 from fiskal.domain.enums import (
     ClassificationOrigin,
     TransactionStatus,
@@ -203,38 +203,39 @@ def test_cannot_confirm_validated_transaction(
         confirm_pair(session, outgoing.id, incoming.id)
 
 
-def test_cannot_confirm_closed_month(
+def test_validated_transactions_are_not_proposed(
     session: Session, account_a: Account, account_b: Account
 ) -> None:
-    """Transactions in a closed month cannot be paired."""
-    day = date(2024, 3, 15)
-    outgoing = _transaction(
-        session, account_a, amount_minor=-10_000, operation_date=day
+    """Validated rows are neither proposed as candidates nor used as sources."""
+    outgoing = _transaction(session, account_a, amount_minor=-10_000)
+    validated = _transaction(
+        session, account_b, amount_minor=10_000, status=TransactionStatus.VALIDATED
     )
-    incoming = _transaction(session, account_b, amount_minor=10_000, operation_date=day)
-    session.add(ClosedMonth(account_id=account_a.id, month=day.replace(day=1)))
-    session.commit()
+    pending = _transaction(session, account_b, amount_minor=10_000)
 
-    with pytest.raises(PairingError, match="closed month"):
-        confirm_pair(session, outgoing.id, incoming.id)
+    proposals = find_proposals_for_transaction_ids(session, [outgoing.id])
+    assert [(p.source_id, p.candidate_id) for p in proposals] == [
+        (outgoing.id, pending.id)
+    ]
+    assert find_proposals_for_transaction_ids(session, [validated.id]) == []
 
 
-def test_cannot_unpair_closed_month(
+def test_candidates_outside_window_are_not_proposed(
     session: Session, account_a: Account, account_b: Account
 ) -> None:
-    """A confirmed pair in a closed month cannot be undone."""
-    day = date(2024, 3, 15)
+    """Only counterparts within the value-date window are proposed."""
     outgoing = _transaction(
-        session, account_a, amount_minor=-10_000, operation_date=day
+        session, account_a, amount_minor=-10_000, operation_date=date(2024, 3, 15)
     )
-    incoming = _transaction(session, account_b, amount_minor=10_000, operation_date=day)
-    confirm_pair(session, outgoing.id, incoming.id)
+    _transaction(
+        session, account_b, amount_minor=10_000, operation_date=date(2024, 3, 19)
+    )
+    near = _transaction(
+        session, account_b, amount_minor=10_000, operation_date=date(2024, 3, 18)
+    )
 
-    session.add(ClosedMonth(account_id=account_a.id, month=day.replace(day=1)))
-    session.commit()
-
-    with pytest.raises(PairingError, match="closed month"):
-        unpair(session, outgoing.id, incoming.id)
+    proposals = find_proposals_for_transaction_ids(session, [outgoing.id])
+    assert [p.candidate_id for p in proposals] == [near.id]
 
 
 def test_internal_transfers_are_excluded_from_income_expense_total(
@@ -258,7 +259,7 @@ def test_internal_transfers_are_excluded_from_income_expense_total(
     )
     confirm_pair(session, outgoing.id, incoming.id)
 
-    counted = session.execute(income_expense_transactions(session)).scalars().all()
+    counted = session.execute(income_expense_transactions()).scalars().all()
     counted_ids = {txn.id for txn in counted}
     external_total = -5_000 + 7_000
     assert outgoing.id not in counted_ids

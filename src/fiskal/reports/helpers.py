@@ -6,7 +6,7 @@ stores its own totals.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from fiskal.db.models import Transaction
@@ -19,7 +19,7 @@ _INCOME_EXPENSE_TYPES = (
 )
 
 
-def income_expense_transactions(session: Session):
+def income_expense_transactions() -> Select[tuple[Transaction]]:
     """Return a query for transactions that count in income/expense totals.
 
     Internal transfers and savings/investment movements are excluded because

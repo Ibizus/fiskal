@@ -8,12 +8,13 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from fiskal.classification.pairing_service import confirm_pair
+from fiskal.classification.pairing_service import confirm_pair, reject_pair
 from fiskal.db.base import Base
 from fiskal.db.engine import make_engine
-from fiskal.db.models import Account, Transaction
+from fiskal.db.models import Account, RejectedPair, Transaction
 from fiskal.importers import OpenbankImporter, import_statement
-from fiskal.importers.base import ImportSummary
+from fiskal.importers.base import ImportRevertError, ImportSummary
+from fiskal.importers.service import revert_import
 from tests.support.openbank_synthetic import (
     GenerationOptions,
     Movement,
@@ -22,6 +23,7 @@ from tests.support.openbank_synthetic import (
 
 _ACCOUNT_CODE_A = "12345678901234567890"
 _ACCOUNT_CODE_B = "98765432109876543210"
+_ACCOUNT_CODE_C = "55555555554444444444"
 
 
 @pytest.fixture
@@ -47,6 +49,15 @@ def account_a(session: Session) -> Account:
 def account_b(session: Session) -> Account:
     """Return a persisted EUR account named Account B."""
     account = Account(name="Account B", currency_code="EUR")
+    session.add(account)
+    session.commit()
+    return account
+
+
+@pytest.fixture
+def account_c(session: Session) -> Account:
+    """Return a persisted EUR account named Account C."""
+    account = Account(name="Account C", currency_code="EUR")
     session.add(account)
     session.commit()
     return account
@@ -147,3 +158,77 @@ def test_import_summary_default_has_zero_proposals() -> None:
         near_duplicates=(),
     )
     assert summary.proposed_pair_count == 0
+
+
+def _import_both(
+    session: Session, account_a: Account, account_b: Account, tmp_path: Path
+) -> tuple[object, object]:
+    day = date(2024, 3, 15)
+    outgoing = [_movement(day, "Transfer to own account B", -10_000, 90_000)]
+    incoming = [_movement(day, "Transfer from own account A", 10_000, 110_000)]
+    first = _write_statement(tmp_path / "a.xls", _ACCOUNT_CODE_A, outgoing)
+    second = _write_statement(tmp_path / "b.xls", _ACCOUNT_CODE_B, incoming)
+    result_a = import_statement(
+        session, OpenbankImporter(), account_a, "a.xls", first.read_bytes()
+    )
+    result_b = import_statement(
+        session, OpenbankImporter(), account_b, "b.xls", second.read_bytes()
+    )
+    return result_a, result_b
+
+
+def test_proposed_pair_count_counts_movements_not_proposals(
+    session: Session,
+    account_a: Account,
+    account_b: Account,
+    account_c: Account,
+    tmp_path: Path,
+) -> None:
+    """One new movement with two plausible counterparts counts once."""
+    day = date(2024, 3, 15)
+    for account, code, name in (
+        (account_b, _ACCOUNT_CODE_B, "b.xls"),
+        (account_c, _ACCOUNT_CODE_C, "c.xls"),
+    ):
+        incoming = [_movement(day, "Transfer from own account A", 10_000, 110_000)]
+        path = _write_statement(tmp_path / name, code, incoming)
+        import_statement(session, OpenbankImporter(), account, name, path.read_bytes())
+
+    outgoing = [_movement(day, "Transfer to own account", -10_000, 90_000)]
+    path = _write_statement(tmp_path / "a.xls", _ACCOUNT_CODE_A, outgoing)
+    result = import_statement(
+        session, OpenbankImporter(), account_a, "a.xls", path.read_bytes()
+    )
+
+    assert len({p.candidate_id for p in result.pair_proposals}) == len(
+        (account_b, account_c)
+    )
+    assert result.summary.proposed_pair_count == 1
+
+
+def test_revert_import_with_confirmed_pair_is_refused(
+    session: Session, account_a: Account, account_b: Account, tmp_path: Path
+) -> None:
+    """An import whose movement is paired cannot be reverted."""
+    result_a, result_b = _import_both(session, account_a, account_b, tmp_path)
+    proposal = result_b.pair_proposals[0]
+    confirm_pair(session, proposal.source_id, proposal.candidate_id)
+
+    with pytest.raises(ImportRevertError, match="paired"):
+        revert_import(session, result_a.import_id)
+    session.rollback()
+    assert session.get(Transaction, proposal.candidate_id) is not None
+
+
+def test_revert_import_with_rejected_pair_drops_rejection(
+    session: Session, account_a: Account, account_b: Account, tmp_path: Path
+) -> None:
+    """Reverting an import also deletes rejections that involve its movements."""
+    result_a, result_b = _import_both(session, account_a, account_b, tmp_path)
+    proposal = result_b.pair_proposals[0]
+    reject_pair(session, proposal.source_id, proposal.candidate_id)
+
+    revert_import(session, result_a.import_id)
+
+    assert session.query(RejectedPair).count() == 0
+    assert session.query(Transaction).filter_by(account_id=account_a.id).count() == 0

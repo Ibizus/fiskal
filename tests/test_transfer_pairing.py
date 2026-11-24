@@ -19,7 +19,6 @@ def _candidate(
     value_date: date,
     amount_minor: int,
     currency_code: str = "EUR",
-    is_paired: bool = False,
 ) -> TransferCandidate:
     """Build a candidate with deterministic ids derived from a counter."""
     return TransferCandidate(
@@ -28,7 +27,6 @@ def _candidate(
         value_date=value_date,
         amount_minor=amount_minor,
         currency_code=currency_code,
-        is_paired=is_paired,
     )
 
 
@@ -38,7 +36,6 @@ def _candidate_uuid(
     value_date: date,
     amount_minor: int,
     currency_code: str = "EUR",
-    is_paired: bool = False,
 ) -> TransferCandidate:
     return TransferCandidate(
         id=uuid4(),
@@ -46,7 +43,6 @@ def _candidate_uuid(
         value_date=value_date,
         amount_minor=amount_minor,
         currency_code=currency_code,
-        is_paired=is_paired,
     )
 
 
@@ -84,15 +80,6 @@ def test_same_account_never_paired() -> None:
     same_account = _candidate(account=1, value_date=day, amount_minor=10_000)
 
     assert TransferPairing().propose([source], [same_account]) == []
-
-
-def test_already_paired_excluded() -> None:
-    """Already paired transactions are not proposed as candidates."""
-    day = date(2024, 3, 15)
-    source = _candidate(account=1, value_date=day, amount_minor=-10_000)
-    paired = _candidate(account=2, value_date=day, amount_minor=10_000, is_paired=True)
-
-    assert TransferPairing().propose([source], [paired]) == []
 
 
 def test_currency_mismatch() -> None:

@@ -79,8 +79,7 @@ a proposal remembers your choice and stops the same pair from being proposed
 again. You can undo a confirmed pair later; both sides return to their default
 type and pending status. Pairing never changes imported bank fields.
 
-A pair cannot be confirmed or undone when either side belongs to a closed month
-or is already validated.
+A pair cannot be confirmed or undone when either side is already validated.
 
 ## Pre-commit
 
