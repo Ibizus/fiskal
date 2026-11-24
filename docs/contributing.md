@@ -64,6 +64,32 @@ version. To upgrade it, widen or bump the range in `pyproject.toml`, run
 `uv lock --upgrade-package ruff`, and include the resulting reformat in the same
 pull request.
 
+## Test fixtures
+
+All test fixtures are synthetic. No file derived from a real bank statement may
+ever enter the repository.
+
+Generate a new Openbank-style fixture by hand with:
+
+```bash
+uv run python tests/support/openbank_synthetic.py \
+  tests/fixtures/anon/openbank_synthetic.xls \
+  --movements 100 \
+  --start-date 2024-01-01 \
+  --account-code 12345678901234567890 \
+  --opening-balance 50000.00 \
+  --seed 42
+```
+
+The generator is deterministic: the same options and seed produce byte-identical
+output. Use the switches (`--truncate-descriptions`, `--repeated-rows`,
+`--accented-descriptions`, `--thousands-in-amounts`, `--extra-trailing-blank`,
+`--zero-movements`, etc.) to create edge cases for importer tests.
+
+Generated `.xls` files are HTML tables encoded in `iso-8859-1`, exactly like the
+Openbank portal export. Keep any generated fixture under
+`tests/fixtures/anon/` so the personal-data guard accepts it.
+
 ## Captain approval required
 
 The following areas require captain approval before changing:
