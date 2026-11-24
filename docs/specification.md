@@ -207,7 +207,9 @@ After reading any file the importer reports:
 
 - first and last transaction date,
 - total line count,
-- how many rows are new and how many were already loaded, and
+- how many rows are new and how many were already loaded,
+- how many of the new rows have a proposed internal-transfer counterpart in
+  another account, and
 - a balance-continuity warning when the check fails.
 
 An alert is raised when the file adds no new transaction, which catches wrong
@@ -216,8 +218,9 @@ uploads and downloads with unexpected dates.
 ### Import revert
 
 An import can be reverted as a whole while none of its transactions has been
-validated and its month is not closed. Otherwise only single transactions can be
-deleted, with a confirmation. Data imported from the bank (dates, amount,
+validated or paired as an internal transfer and its month is not closed.
+Rejected pair decisions involving its transactions are deleted with it.
+Otherwise only single transactions can be deleted, with a confirmation. Data imported from the bank (dates, amount,
 description, balance) is never edited; only classification and note are
 editable. Manual entries are fully editable.
 
@@ -230,8 +233,15 @@ loaded, under 5% of a month's transactions reach the manual queue.
 1. Normalization (in the importer).
 2. Internal transfer pairing: immediately after import, the core proposes the
    matching counterpart transaction in another account of the profile for
-   confirmation. Both sides are marked as `internal_transfer` so merged views do
-   not double count them. Full account numbers are never stored.
+   confirmation. A candidate must be in a different account, have the opposite
+   amount, share the same currency and fall within a configurable value-date
+   window (default a few days). Several plausible candidates are returned
+   ranked deterministically; the core never picks one silently. Confirming a
+   proposal links both sides and marks them as `internal_transfer` so merged
+   views do not double count them; rejecting remembers the decision; undoing a
+   confirmed pair restores both sides to unclassified/pending. Pairing cannot
+   be confirmed or undone when either side is already validated, and validated
+   transactions are never proposed. Full account numbers are never stored.
 3. Deterministic rules by priority: first match assigns type, cost center and
    category. Conditions: "contains" on the normalized description/counterparty,
    optional amount range, optional day-of-month range. Regular expressions are
@@ -327,7 +337,9 @@ are a query layer on top and require no model change.
 
 A month can be closed by hand once the review is done. In a closed month
 nothing can be imported or reclassified until the month is explicitly reopened,
-and the reopening is recorded.
+and the reopening is recorded. The month-close task must also guard internal
+transfer pairing: transactions in a closed month are not proposed, and pairs
+that touch a closed month cannot be confirmed or undone.
 
 ## Bulk history import
 

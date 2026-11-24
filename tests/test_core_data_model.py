@@ -25,6 +25,7 @@ from fiskal.db.models import (
     Category,
     CostCenter,
     Import,
+    RejectedPair,
     Transaction,
 )
 from fiskal.domain.enums import (
@@ -345,18 +346,49 @@ def _seed_import(session: Session) -> None:
     _make_import(session, _make_account(session))
 
 
+def _seed_paired_transactions(session: Session) -> None:
+    account = _make_account(session)
+    outgoing = _make_transaction(
+        session, account=account, identity_key="pair-out", amount_minor=-10_000
+    )
+    incoming_account = _make_account(session, name="Other account")
+    incoming = _make_transaction(
+        session,
+        account=incoming_account,
+        identity_key="pair-in",
+        amount_minor=10_000,
+    )
+    outgoing.paired_transaction_id = incoming.id
+    incoming.paired_transaction_id = outgoing.id
+    session.commit()
+
+
+def _seed_rejected_pair(session: Session) -> None:
+    account = _make_account(session)
+    left = _make_transaction(session, account=account, identity_key="rej-left")
+    right = _make_transaction(
+        session,
+        account=_make_account(session, name="Other account"),
+        identity_key="rej-right",
+    )
+    ordered = (
+        (left.id, right.id) if str(left.id) <= str(right.id) else (right.id, left.id)
+    )
+    session.add(
+        RejectedPair(left_transaction_id=ordered[0], right_transaction_id=ordered[1])
+    )
+    session.commit()
+
+
 @pytest.mark.parametrize(
     "seed",
     [
-        _seed_transaction,
-        _seed_import,
-        _make_account,
-        _make_category,
-        _make_cost_center,
+        _seed_paired_transactions,
+        _seed_rejected_pair,
     ],
 )
-def test_downgrade_with_rows_is_refused(tmp_path: Path, seed: Any) -> None:
-    """Downgrading a populated database fails before touching the schema."""
+def test_downgrade_with_pairing_data_is_refused(tmp_path: Path, seed: Any) -> None:
+    """Downgrading loses pairing decisions, so it is refused when any exist."""
     db_path = tmp_path / "populated.db"
     _run_alembic(db_path, "upgrade", "head")
     tables_before = _table_names(db_path)
@@ -367,19 +399,47 @@ def test_downgrade_with_rows_is_refused(tmp_path: Path, seed: Any) -> None:
     result = _run_alembic(db_path, "downgrade", "-1", check=False)
 
     assert result.returncode != 0
-    assert "empty database" in result.stderr
     assert _table_names(db_path) == tables_before
     current = _run_alembic(db_path, "current")
-    assert "01d213a4aac2 (head)" in current.stdout
+    assert "694949b009bf (head)" in current.stdout
     _run_alembic(db_path, "check")
 
 
+@pytest.mark.parametrize(
+    "seed",
+    [
+        _seed_transaction,
+        _seed_import,
+        _make_account,
+        _make_category,
+        _make_cost_center,
+    ],
+)
+def test_core_downgrade_with_rows_is_refused(tmp_path: Path, seed: Any) -> None:
+    """Downgrading the core data model on a populated database is refused."""
+    db_path = tmp_path / "populated.db"
+    _run_alembic(db_path, "upgrade", "head")
+    session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
+    seed(session)
+    session.close()
+    _run_alembic(db_path, "downgrade", "01d213a4aac2")
+    tables_before = _table_names(db_path)
+
+    result = _run_alembic(db_path, "downgrade", "c82da8d3d961", check=False)
+
+    assert result.returncode != 0
+    assert "empty database" in result.stderr
+    assert _table_names(db_path) == tables_before
+    current = _run_alembic(db_path, "current")
+    assert "01d213a4aac2" in current.stdout
+
+
 def test_downgrade_on_empty_database_restores_placeholder(tmp_path: Path) -> None:
-    """An empty database downgrades to the phase 0 placeholder schema."""
+    """An empty database downgrades through every revision to the placeholder."""
     db_path = tmp_path / "empty.db"
     _run_alembic(db_path, "upgrade", "head")
 
-    _run_alembic(db_path, "downgrade", "-1")
+    _run_alembic(db_path, "downgrade", "c82da8d3d961")
 
     assert _table_names(db_path) == {"alembic_version", "transactions"}
     with make_engine(f"sqlite:///{db_path}").connect() as connection:

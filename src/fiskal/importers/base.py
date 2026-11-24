@@ -17,6 +17,8 @@ from datetime import date
 from typing import ClassVar, Final
 from uuid import UUID
 
+from fiskal.domain.transfer_pairing import PairProposal
+
 
 @dataclass(frozen=True)
 class ImportedTransaction:
@@ -70,6 +72,7 @@ class ImportSummary:
     truncated_count: int
     warnings: tuple[str, ...]
     near_duplicates: tuple[NearDuplicate, ...]
+    proposed_pair_count: int = 0
 
     @property
     def adds_no_movement(self) -> bool:
@@ -84,6 +87,7 @@ class ImportResult:
     import_id: UUID
     summary: ImportSummary
     account_hint: str | None
+    pair_proposals: tuple[PairProposal, ...] = ()
 
 
 class ImporterError(Exception):

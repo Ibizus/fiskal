@@ -76,6 +76,11 @@ accounts, that make up an internal transfer. Pairing marks both as
 `internal_transfer` so merged views do not double count them; the user confirms.
 _Avoid_: Transfer matching, reconciliation.
 
+**Rejected pair**:
+A pair of transactions the user explicitly chose not to link as an internal
+transfer. The decision is persisted so the same proposal is not surfaced again.
+_Avoid_: Dismissed match, ignored pair.
+
 ## Workflow
 
 **Profile**:

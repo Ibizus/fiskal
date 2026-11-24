@@ -13,10 +13,13 @@ import hashlib
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from fiskal.db.models import Account, Import, Transaction
+from fiskal.classification.pairing_service import (
+    find_proposals_for_transaction_ids,
+)
+from fiskal.db.models import Account, Import, RejectedPair, Transaction
 from fiskal.domain.enums import (
     ClassificationOrigin,
     TransactionStatus,
@@ -167,9 +170,15 @@ def import_statement(
     session.add(import_row)
     session.flush()
 
-    for new_txn in new_transactions:
-        session.add(_to_transaction(account, import_row, new_txn))
+    orm_transactions = [
+        _to_transaction(account, import_row, new_txn) for new_txn in new_transactions
+    ]
+    for orm_txn in orm_transactions:
+        session.add(orm_txn)
     session.commit()
+
+    new_transaction_ids = [orm_txn.id for orm_txn in orm_transactions]
+    pair_proposals = find_proposals_for_transaction_ids(session, new_transaction_ids)
 
     summary = ImportSummary(
         first_transaction_date=first_transaction_date,
@@ -180,11 +189,13 @@ def import_statement(
         truncated_count=sum(1 for txn in transactions if txn.truncated),
         warnings=tuple(warnings),
         near_duplicates=tuple(near_duplicates),
+        proposed_pair_count=len({p.source_id for p in pair_proposals}),
     )
     return ImportResult(
         import_id=import_row.id,
         summary=summary,
         account_hint=parsed.account_hint,
+        pair_proposals=tuple(pair_proposals),
     )
 
 
@@ -230,8 +241,9 @@ def revert_import(session: Session, import_id: UUID) -> None:
     """Delete an import and all its transactions, when allowed.
 
     An import can only be reverted while none of its transactions has been
-    validated. The closed-month guard will be added with the month-close
-    feature; there is no month-close table yet.
+    validated or paired as an internal transfer; rejected pair decisions that
+    involve its transactions are deleted with them. The closed-month guard
+    will be added with the month-close feature.
     """
     import_row = session.get(Import, import_id)
     if import_row is None:
@@ -247,7 +259,18 @@ def revert_import(session: Session, import_id: UUID) -> None:
             raise ImportRevertError(
                 "cannot revert an import that contains validated transactions"
             )
+        if txn.paired_transaction_id is not None:
+            raise ImportRevertError(
+                "cannot revert an import that contains paired transactions"
+            )
 
+    transaction_ids = [txn.id for txn in transactions]
+    session.execute(
+        delete(RejectedPair).where(
+            RejectedPair.left_transaction_id.in_(transaction_ids)
+            | RejectedPair.right_transaction_id.in_(transaction_ids)
+        )
+    )
     for txn in transactions:
         session.delete(txn)
     session.flush()
