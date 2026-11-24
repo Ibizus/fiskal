@@ -294,7 +294,7 @@ def test_zero_movements_file(
     default_options: GenerationOptions, tmp_path: Path
 ) -> None:
     """A file with zero movements must still contain the header and titles."""
-    options = replace(default_options, zero_movements=True)
+    options = replace(default_options, movement_count=0)
     path = tmp_path / "empty.xls"
     write_statement(options, path)
     tables = _read_html_tables(path)
@@ -364,7 +364,7 @@ def test_header_timestamp_comes_from_movements(
 def test_cli_parses_dot_decimal_opening_balance(tmp_path: Path) -> None:
     """``--opening-balance 50000.00`` must mean fifty thousand euros."""
     path = tmp_path / "cli.xls"
-    assert main([str(path), "--zero-movements", "--opening-balance", "50000.00"]) == 0
+    assert main([str(path), "--movements", "0", "--opening-balance", "50000.00"]) == 0
     df = _read_html_tables(path)[0]
     assert df.iloc[7, 3] == "50.000,00 EUR"
 
@@ -383,9 +383,12 @@ def test_accented_characters_survive(
     options = replace(default_options, accented_descriptions=True)
     path = tmp_path / "statement.xls"
     write_statement(options, path)
-    raw = path.read_bytes()
-    # The column title contains 'ó', encoded as 0xF3 in iso-8859-1.
-    assert b"Fecha Operaci\xf3n" in raw
+    parsed_text = "\n".join(
+        str(value) for value in _read_html_tables(path)[0].to_numpy().ravel()
+    )
+    for movement in generate_movements(options):
+        assert not movement.description.isascii()
+        assert movement.description.strip() in parsed_text
 
 
 def test_pandas_read_html_roundtrip(

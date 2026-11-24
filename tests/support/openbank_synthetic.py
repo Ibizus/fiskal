@@ -36,7 +36,6 @@ class GenerationOptions:
     thousands_in_amounts: bool = False
     income_expense_mix: float = 0.14
     extra_trailing_blank: bool = False
-    zero_movements: bool = False
 
 
 @dataclass(frozen=True)
@@ -141,10 +140,10 @@ _SUBJECTS: Final[list[str]] = [
 
 _ACCENTED_SUBJECTS: Final[list[str]] = [
     "Fictional Café",
-    "Tech Service",
-    "Electronics Store",
+    "Naïve Tech Service",
+    "Fiancé Electronics Store",
     "Monthly Café",
-    "Medical Payment",
+    "Résumé Medical Payment",
 ]
 
 _CARD_MASK: Final = "DEMO CARD 1234 56** **** 7890"
@@ -213,9 +212,6 @@ def generate_movements(options: GenerationOptions) -> list[Movement]:
     next-older row's balance plus this row's amount.
     """
     rng = random.Random(options.seed)
-
-    if options.zero_movements:
-        return []
 
     operation_dates_chrono = _generate_operation_dates(
         rng, options.start_date, options.movement_count
@@ -534,8 +530,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--start-date",
         type=_date_value,
-        default=date.today().isoformat(),
-        help="Operation date of the oldest movement (YYYY-MM-DD).",
+        default="2024-01-01",
+        help="Operation date of the oldest movement (default: 2024-01-01).",
     )
     parser.add_argument(
         "--account-code",
@@ -586,11 +582,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Append an extra fully blank row at the end.",
     )
-    parser.add_argument(
-        "--zero-movements",
-        action="store_true",
-        help="Produce a file with zero movements.",
-    )
     return parser
 
 
@@ -617,7 +608,6 @@ def main(argv: list[str] | None = None) -> int:
         thousands_in_amounts=args.thousands_in_amounts,
         income_expense_mix=args.income_expense_mix,
         extra_trailing_blank=args.extra_trailing_blank,
-        zero_movements=args.zero_movements,
     )
 
     write_statement(options, args.destination)

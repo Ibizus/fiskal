@@ -84,7 +84,7 @@ uv run python tests/support/openbank_synthetic.py \
 The generator is deterministic: the same options and seed produce byte-identical
 output. Use the switches (`--truncate-descriptions`, `--repeated-rows`,
 `--accented-descriptions`, `--thousands-in-amounts`, `--extra-trailing-blank`,
-`--zero-movements`, etc.) to create edge cases for importer tests.
+`--movements 0`, etc.) to create edge cases for importer tests.
 
 Generated `.xls` files are HTML tables encoded in `iso-8859-1`, exactly like the
 Openbank portal export. All invented text is in English except the five
