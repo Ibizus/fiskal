@@ -218,8 +218,9 @@ uploads and downloads with unexpected dates.
 ### Import revert
 
 An import can be reverted as a whole while none of its transactions has been
-validated and its month is not closed. Otherwise only single transactions can be
-deleted, with a confirmation. Data imported from the bank (dates, amount,
+validated or paired as an internal transfer and its month is not closed.
+Rejected pair decisions involving its transactions are deleted with it.
+Otherwise only single transactions can be deleted, with a confirmation. Data imported from the bank (dates, amount,
 description, balance) is never edited; only classification and note are
 editable. Manual entries are fully editable.
 
