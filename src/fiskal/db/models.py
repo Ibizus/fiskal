@@ -18,6 +18,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -165,6 +166,11 @@ class Transaction(Base):
     ``category_id`` means the transaction is unclassified, whatever ``origin``
     holds (imports store a placeholder). Classification code must key off
     ``category_id``, never off ``origin``.
+
+    Two transactions that form an internal transfer are linked through
+    ``paired_transaction_id``. A transaction can belong to at most one pair;
+    this is enforced by the application because a single self-referential
+    nullable foreign key cannot express mutual exclusivity on its own.
     """
 
     __tablename__ = "transactions"
@@ -194,12 +200,20 @@ class Transaction(Base):
     note: Mapped[str | None] = mapped_column(String(1000))
     is_manual: Mapped[bool] = mapped_column(Boolean, default=False)
     identity_key: Mapped[str] = mapped_column(String(255))
+    paired_transaction_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("transactions.id"),
+    )
 
     __table_args__ = (
         UniqueConstraint(
             "account_id",
             "identity_key",
             name="uq_transactions_identity_per_account",
+        ),
+        Index(
+            "ix_transactions_paired_transaction_id",
+            "paired_transaction_id",
+            unique=True,
         ),
         CheckConstraint(
             f"type IN {_transaction_type_values()}",
@@ -217,5 +231,55 @@ class Transaction(Base):
             "proration_end_date IS NULL OR proration_start_date IS NULL OR "
             "proration_end_date >= proration_start_date",
             name="ck_transactions_proration_period",
+        ),
+    )
+
+
+class RejectedPair(Base):
+    """A pair of transactions the user explicitly chose not to link.
+
+    Storing the rejection prevents the same proposal from surfacing again on
+    later imports. The two transaction ids are stored in a deterministic order
+    so the pair has a single canonical row.
+    """
+
+    __tablename__ = "rejected_pairs"
+
+    left_transaction_id: Mapped[UUID] = mapped_column(
+        ForeignKey("transactions.id"),
+        primary_key=True,
+    )
+    right_transaction_id: Mapped[UUID] = mapped_column(
+        ForeignKey("transactions.id"),
+        primary_key=True,
+    )
+    rejected_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(UTC),
+    )
+
+
+class ClosedMonth(Base):
+    """A month that has been explicitly closed for an account.
+
+    Nothing may be imported or reclassified in a closed month until it is
+    reopened. The month is stored as the first day of the month.
+    """
+
+    __tablename__ = "closed_months"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    account_id: Mapped[UUID] = mapped_column(ForeignKey("accounts.id"))
+    month: Mapped[date] = mapped_column(Date)
+    closed_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "account_id",
+            "month",
+            name="uq_closed_months_account_month",
         ),
     )
