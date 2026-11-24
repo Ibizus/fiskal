@@ -87,7 +87,10 @@ output. Use the switches (`--truncate-descriptions`, `--repeated-rows`,
 `--zero-movements`, etc.) to create edge cases for importer tests.
 
 Generated `.xls` files are HTML tables encoded in `iso-8859-1`, exactly like the
-Openbank portal export. Keep any generated fixture under
+Openbank portal export. All invented text is in English except the five
+Spanish column titles (`Fecha Operación`, `Fecha Valor`, `Concepto`,
+`Importe`, `Saldo`), which are part of the real bank format and are the only
+labels the importer should locate by text. Keep any generated fixture under
 `tests/fixtures/anon/` so the personal-data guard accepts it.
 
 ## Captain approval required

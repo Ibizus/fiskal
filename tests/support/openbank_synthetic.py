@@ -119,36 +119,36 @@ _REPEATED_ROW_PROBABILITY: Final = 0.2
 
 # Invented word pools. Nothing here resembles a real merchant or person.
 _DESCRIPTORS: Final[list[str]] = [
-    "Pago",
-    "Recibo",
-    "Compra",
-    "Transferencia",
-    "Ingreso",
-    "Reembolso",
-    "Domiciliacion",
+    "Payment",
+    "Receipt",
+    "Purchase",
+    "Transfer",
+    "Deposit",
+    "Refund",
+    "DirectDebit",
 ]
 
 _SUBJECTS: Final[list[str]] = [
-    "Ficticio",
-    "Ejemplo",
+    "Fictional",
+    "Example",
     "Demo",
-    "Prueba",
-    "Muestra",
-    "Comercio Demo",
-    "Servicio Demo",
-    "Tienda Ejemplo",
+    "Sample",
+    "Specimen",
+    "Demo Shop",
+    "Demo Service",
+    "Example Store",
 ]
 
 _ACCENTED_SUBJECTS: Final[list[str]] = [
-    "Comercio Ficticio",
-    "Servicio Técnico",
-    "Tienda Electrónica",
-    "Mensualidad Café",
-    "Pago Médico",
+    "Fictional Café",
+    "Tech Service",
+    "Electronics Store",
+    "Monthly Café",
+    "Medical Payment",
 ]
 
-_CARD_MASK: Final = "TARJETA DEMO 1234 56** **** 7890"
-_TRANSFER_ACCOUNT: Final = "CUENTA-DEMO-1234-5678-90"
+_CARD_MASK: Final = "DEMO CARD 1234 56** **** 7890"
+_TRANSFER_ACCOUNT: Final = "DEMO-ACCOUNT-1234-5678-90"
 
 
 def _generate_description(
@@ -175,7 +175,7 @@ def _generate_description(
     elif use_reference:
         base = f"{rng.choice(_DESCRIPTORS)} {subject}: REF {index:08d}"
     else:
-        base = f"{rng.choice(_DESCRIPTORS)} {subject} concepto de prueba"
+        base = f"{rng.choice(_DESCRIPTORS)} {subject} sample transaction"
 
     # Occasionally produce a description that reaches the cut-off.
     if truncate_descriptions or rng.random() < _TRUNCATION_PROBABILITY:
@@ -298,7 +298,7 @@ def _header_rows(options: GenerationOptions, movements: list[Movement]) -> str:
     generated_at = generation_timestamp.strftime("%d/%m/%Y %H:%M") + "H"
 
     # Row 1: bold free-text title in col 1.
-    title_text = "Fabrica -\n\t\tSintetizado"
+    title_text = "Fabricated -\n\t\tSynthetic"
     row1 = (
         "<tr>"
         "<td>&nbsp;</td>"
@@ -308,7 +308,7 @@ def _header_rows(options: GenerationOptions, movements: list[Movement]) -> str:
     )
 
     # Row 2: bold label + timestamp in col 9 (0-based index 9).
-    row2_label = f"Fecha de generacion: {generated_at}"
+    row2_label = f"Generation date: {generated_at}"
     row2 = (
         "<tr>"
         + "".join("<td>&nbsp;</td>" for _ in range(9))
@@ -317,7 +317,7 @@ def _header_rows(options: GenerationOptions, movements: list[Movement]) -> str:
     )
 
     # Row 3: account-code label and value.
-    row3_label = "Cuenta:\n\t\t\t\t"
+    row3_label = "Account:\n\t\t\t\t"
     row3 = (
         "<tr>"
         "<td>&nbsp;</td>"
@@ -330,11 +330,11 @@ def _header_rows(options: GenerationOptions, movements: list[Movement]) -> str:
 
     # Rows 5-7: label/value pairs with 5 tabs after the colon.
     label_tabs = ":\n\t\t\t\t\t"
-    row5_label = f"Titular{label_tabs}"
-    row5_value = "Usuario Ficticio Demo".ljust(50)
-    row6_label = f"Producto{label_tabs}"
-    row6_value = "Cuenta Corriente Demo"
-    row7_label = f"Saldo{label_tabs}"
+    row5_label = f"Holder{label_tabs}"
+    row5_value = "Demo Fictional User".ljust(50)
+    row6_label = f"Product{label_tabs}"
+    row6_value = "Demo Current Account"
+    row7_label = f"Balance{label_tabs}"
     row7_value = f"{header_amount} EUR"
 
     def _label_value_row(label: str, value: str, *, value_bold: bool = False) -> str:
@@ -353,7 +353,7 @@ def _header_rows(options: GenerationOptions, movements: list[Movement]) -> str:
     row7 = _label_value_row(row7_label, row7_value, value_bold=True)
 
     # Row 8: bold three-word title in col 1 without colon.
-    row8_title = "Listado Movimientos Demo"
+    row8_title = "Demo Movement List"
     row8 = (
         "<tr>"
         "<td>&nbsp;</td>"
@@ -377,7 +377,12 @@ def _header_rows(options: GenerationOptions, movements: list[Movement]) -> str:
 
 
 def _column_title_row() -> str:
-    """Build the column-title row with the exact expected headers."""
+    """Build the column-title row with the exact expected headers.
+
+    These five Spanish titles are part of the real Openbank portal export
+    format and the importer locates the data section by matching them.
+    Everything else in the generated statement is invented English text.
+    """
     titles = [
         "Fecha Operación",
         "Fecha Valor",

@@ -129,16 +129,16 @@ def test_ten_header_rows_before_titles(
     assert title_row_index == _ROW_COUNT_HEADER
 
 
-def test_column_titles_exact(
+def test_column_titles_are_only_spanish_text(
     default_options: GenerationOptions, tmp_path: Path
 ) -> None:
-    """The column-title row must contain the exact expected headers."""
+    """The column-title row must contain the exact expected Spanish headers."""
     path = tmp_path / "statement.xls"
     write_statement(default_options, path)
     tables = _read_html_tables(path)
     df = tables[0]
 
-    title_row = df.iloc[10]
+    title_row = df.iloc[_ROW_COUNT_HEADER]
     # Content lives in the odd columns (1, 3, 5, 7, 9).
     titles = [title_row.iloc[i] for i in (1, 3, 5, 7, 9)]
     assert titles == [
@@ -358,7 +358,7 @@ def test_header_timestamp_comes_from_movements(
     html_text = generate_statement_html(default_options)
     newest = generate_movements(default_options)[0]
     expected = newest.operation_date.strftime("%d/%m/%Y") + " 00:00H"
-    assert f"Fecha de generacion: {expected}" in html_text
+    assert f"Generation date: {expected}" in html_text
 
 
 def test_cli_parses_dot_decimal_opening_balance(tmp_path: Path) -> None:
