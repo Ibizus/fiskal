@@ -8,16 +8,18 @@ repos:
         pass_filenames: false
         always_run: true
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
-    hooks:
       - id: ruff-format
-        args: [--check]
-      - id: ruff
-        args: [--fix, --exit-non-zero-on-fix]
+        name: ruff format check (lockfile version)
+        entry: uv run ruff format --check
+        language: system
+        pass_filenames: false
 
-  - repo: local
-    hooks:
+      - id: ruff
+        name: ruff lint with autofix (lockfile version)
+        entry: uv run ruff check --fix --exit-non-zero-on-fix
+        language: system
+        pass_filenames: false
+
       - id: mypy-strict
         name: mypy strict on core packages
         entry: uv run mypy --strict src/fiskal/domain src/fiskal/classification src/fiskal/importers

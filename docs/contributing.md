@@ -56,6 +56,14 @@ Use conventional commits:
    uv run python scripts/guard_personal_data.py
    ```
 
+## Tool versions
+
+`ruff` is installed from `uv.lock`, and the pre-commit hooks run the same
+`uv run ruff ...` commands as CI, so local checks and CI always use the same
+version. To upgrade it, widen or bump the range in `pyproject.toml`, run
+`uv lock --upgrade-package ruff`, and include the resulting reformat in the same
+pull request.
+
 ## Captain approval required
 
 The following areas require captain approval before changing:
