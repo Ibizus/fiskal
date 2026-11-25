@@ -207,10 +207,16 @@ def preview_reapply_validated(session: Session) -> list[ReapplyChange]:
         rule = _first_matching_rule(rules, txn)
         if rule is None:
             continue
+        # A rule without a cost center keeps the transaction's cost center.
+        cost_center_id = (
+            rule.cost_center_id
+            if rule.cost_center_id is not None
+            else txn.cost_center_id
+        )
         if (
             txn.transaction_type == rule.transaction_type
             and txn.category_id == rule.category_id
-            and txn.cost_center_id == rule.cost_center_id
+            and txn.cost_center_id == cost_center_id
         ):
             continue
         changes.append(
@@ -219,7 +225,7 @@ def preview_reapply_validated(session: Session) -> list[ReapplyChange]:
                 rule_id=rule.id,
                 transaction_type=rule.transaction_type,
                 category_id=rule.category_id,
-                cost_center_id=rule.cost_center_id,
+                cost_center_id=cost_center_id,
             )
         )
     return changes

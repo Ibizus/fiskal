@@ -662,6 +662,48 @@ def test_apply_reapply_validated_writes_changes(session: Session) -> None:
     assert rule.hit_count == 1
 
 
+def test_reapply_validated_keeps_cost_center_when_rule_has_none(
+    session: Session,
+) -> None:
+    """A rule without a cost center neither reports nor erases a cost center."""
+    household = _cost_center(session)
+    account = _account(session)
+    food = _category(session, key="category.food")
+    shopping = _category(session, key="category.shopping")
+    _rule(session, category=food)
+    unchanged = _transaction(
+        session,
+        account=account,
+        description="grocery store",
+        status=TransactionStatus.VALIDATED,
+        category=food,
+        cost_center=household,
+        origin=ClassificationOrigin.MANUAL,
+        transaction_type=TransactionType.EXPENSE,
+    )
+    changed = _transaction(
+        session,
+        account=account,
+        description="grocery store",
+        day=16,
+        status=TransactionStatus.VALIDATED,
+        category=shopping,
+        cost_center=household,
+        origin=ClassificationOrigin.MANUAL,
+        transaction_type=TransactionType.EXPENSE,
+    )
+
+    changes = preview_reapply_validated(session)
+
+    assert [change.transaction_id for change in changes] == [changed.id]
+    apply_reapply_validated(session, changes)
+    session.refresh(unchanged)
+    session.refresh(changed)
+    assert changed.category_id == food.id
+    assert changed.cost_center_id == household.id
+    assert unchanged.cost_center_id == household.id
+
+
 def test_create_rule_validates_regex(session: Session) -> None:
     """Creating a rule with a pathological regex is rejected."""
     category = _category(session)
