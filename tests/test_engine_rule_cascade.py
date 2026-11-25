@@ -78,6 +78,12 @@ def test_reclassify_does_not_inflate_hit_count(session: Session) -> None:
             pattern="unrelated",
             transaction_type="expense",
             category_id=category.id,
+            cost_center_id=None,
+            amount_min_minor=None,
+            amount_max_minor=None,
+            day_of_month_min=None,
+            day_of_month_max=None,
+            is_active=True,
         ),
     )
     update_rule(
@@ -89,6 +95,12 @@ def test_reclassify_does_not_inflate_hit_count(session: Session) -> None:
             pattern="still unrelated",
             transaction_type="expense",
             category_id=category.id,
+            cost_center_id=None,
+            amount_min_minor=None,
+            amount_max_minor=None,
+            day_of_month_min=None,
+            day_of_month_max=None,
+            is_active=True,
         ),
     )
     reclassify_pending(session)
@@ -116,6 +128,12 @@ def test_reclassify_counts_hit_when_row_moves_to_another_rule(
             pattern="grocery",
             transaction_type="expense",
             category_id=category.id,
+            cost_center_id=None,
+            amount_min_minor=None,
+            amount_max_minor=None,
+            day_of_month_min=None,
+            day_of_month_max=None,
+            is_active=True,
         ),
     )
 

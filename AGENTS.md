@@ -126,6 +126,8 @@ Use conventional commits for all changes:
 A file may grow as long as it keeps a single responsibility; split it when it
 starts to mix concerns. There is no numeric file-size limit and no CI check for
 file size.
+CI enforces ruff's McCabe `max-complexity = 12` and pylint `max-args = 8`
+(both relaxed for `tests/`); see `pyproject.toml`.
 
 ## Maintaining this file
 

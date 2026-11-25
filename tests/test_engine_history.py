@@ -147,6 +147,12 @@ def test_history_suggestion_survives_rule_changes(session: Session) -> None:
             pattern="unrelated",
             transaction_type="expense",
             category_id=misc.id,
+            cost_center_id=None,
+            amount_min_minor=None,
+            amount_max_minor=None,
+            day_of_month_min=None,
+            day_of_month_max=None,
+            is_active=True,
         ),
     )
 

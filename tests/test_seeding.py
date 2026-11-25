@@ -60,6 +60,11 @@ def test_seed_does_not_duplicate_edited_seed_rule(session: Session) -> None:
             transaction_type=salary.transaction_type,
             category_id=salary.category_id,
             amount_min_minor=1,
+            cost_center_id=None,
+            amount_max_minor=None,
+            day_of_month_min=None,
+            day_of_month_max=None,
+            is_active=True,
         ),
     )
 

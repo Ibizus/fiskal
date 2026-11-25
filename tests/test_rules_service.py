@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+from typing import Any
+
 import pytest
 from sqlalchemy.orm import Session
 
@@ -22,7 +25,13 @@ from fiskal.domain.enums import (
     TransactionType,
 )
 from fiskal.domain.rule_matching import RuleCondition, RuleValidationError
-from tests.support.factories import _account, _category, _rule, _transaction
+from tests.support.factories import (
+    _account,
+    _category,
+    _cost_center,
+    _rule,
+    _transaction,
+)
 
 
 def test_create_rule_validates_regex(session: Session) -> None:
@@ -37,6 +46,12 @@ def test_create_rule_validates_regex(session: Session) -> None:
                 pattern="(a+)+",
                 transaction_type=TransactionType.EXPENSE,
                 category_id=category.id,
+                cost_center_id=None,
+                amount_min_minor=None,
+                amount_max_minor=None,
+                day_of_month_min=None,
+                day_of_month_max=None,
+                is_active=True,
             ),
         )
 
@@ -53,6 +68,12 @@ def test_create_rule_rejects_internal_transfer_type(session: Session) -> None:
                 pattern="transfer",
                 transaction_type=TransactionType.INTERNAL_TRANSFER,
                 category_id=category.id,
+                cost_center_id=None,
+                amount_min_minor=None,
+                amount_max_minor=None,
+                day_of_month_min=None,
+                day_of_month_max=None,
+                is_active=True,
             ),
         )
 
@@ -69,8 +90,56 @@ def test_create_rule_rejects_incompatible_category_kind(session: Session) -> Non
                 pattern="salary",
                 transaction_type=TransactionType.EXPENSE,
                 category_id=income.id,
+                cost_center_id=None,
+                amount_min_minor=None,
+                amount_max_minor=None,
+                day_of_month_min=None,
+                day_of_month_max=None,
+                is_active=True,
             ),
         )
+
+
+def test_update_rule_cannot_omit_fields_and_reset_them(session: Session) -> None:
+    """An update must state every field; omitted fields never reset silently."""
+    category = _category(session)
+    cost_center = _cost_center(session)
+    rule = _rule(session, category=category)
+    deactivated = RuleSpec(
+        priority=1,
+        mode=RuleMatchMode.CONTAINS,
+        pattern="grocery",
+        transaction_type=TransactionType.EXPENSE,
+        category_id=category.id,
+        cost_center_id=cost_center.id,
+        amount_min_minor=100,
+        amount_max_minor=900,
+        day_of_month_min=1,
+        day_of_month_max=10,
+        is_active=False,
+    )
+    update_rule(session, rule.id, deactivated)
+
+    partial: dict[str, Any] = {
+        "priority": 1,
+        "mode": RuleMatchMode.CONTAINS,
+        "pattern": "market",
+        "transaction_type": TransactionType.EXPENSE,
+        "category_id": category.id,
+    }
+    with pytest.raises(TypeError):
+        update_rule(session, rule.id, RuleSpec(**partial))
+
+    update_rule(
+        session, rule.id, RuleSpec(**{**asdict(deactivated), "pattern": "market"})
+    )
+
+    session.refresh(rule)
+    assert rule.pattern == "market"
+    assert rule.is_active is False
+    assert rule.cost_center_id == cost_center.id
+    assert (rule.amount_min_minor, rule.amount_max_minor) == (100, 900)
+    assert (rule.day_of_month_min, rule.day_of_month_max) == (1, 10)
 
 
 def test_update_rule_reclassifies_only_pending(session: Session) -> None:
@@ -101,6 +170,12 @@ def test_update_rule_reclassifies_only_pending(session: Session) -> None:
             pattern="rent",
             transaction_type=TransactionType.EXPENSE,
             category_id=misc.id,
+            cost_center_id=None,
+            amount_min_minor=None,
+            amount_max_minor=None,
+            day_of_month_min=None,
+            day_of_month_max=None,
+            is_active=True,
         ),
     )
 

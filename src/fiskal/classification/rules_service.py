@@ -55,8 +55,9 @@ class RuleProposal:
 class RuleSpec:
     """The editable specification of a rule, shared by create and update.
 
-    This is the set of fields the rule editor collects. It is validated and
-    then applied either to a new user rule or to an existing rule.
+    This is the full set of fields the rule editor collects. Every field must
+    be stated, so an update replaces the whole rule and never silently resets
+    an omitted field to a default.
     """
 
     priority: int
@@ -64,12 +65,12 @@ class RuleSpec:
     pattern: str
     transaction_type: TransactionType | str
     category_id: UUID
-    cost_center_id: UUID | None = None
-    amount_min_minor: int | None = None
-    amount_max_minor: int | None = None
-    day_of_month_min: int | None = None
-    day_of_month_max: int | None = None
-    is_active: bool = True
+    cost_center_id: UUID | None
+    amount_min_minor: int | None
+    amount_max_minor: int | None
+    day_of_month_min: int | None
+    day_of_month_max: int | None
+    is_active: bool
 
 
 def _coerce_mode(mode: RuleMatchMode | str) -> RuleMatchMode:
