@@ -1,16 +1,14 @@
 """Classification engine: the deterministic cascade for pending transactions.
 
 The layers run in the documented order: deterministic rules, then history, then
-the account's default cost center. The optional AI ``Classifier`` layer is a
-documented extension point that plugs in between history and the default cost
-center; it is not implemented in v1. The engine only writes to pending,
-unpaired transactions and never touches validated rows.
+the account's default cost center. The engine only writes to pending, unpaired
+transactions and never touches validated rows.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
@@ -45,18 +43,28 @@ def _rule_sort_key(rule: Rule) -> tuple[int, int, str]:
 
 
 @dataclass(frozen=True)
-class HistorySuggestion:
-    """The most frequent validated classification for an ambiguous counterparty.
+class HistoryOutcome:
+    """One validated classification seen for a counterparty, with its count."""
 
-    Returned to the (future) validation queue so it can preselect the value;
-    the transaction itself stays unclassified and pending.
+    transaction_type: TransactionType
+    cost_center_id: UUID | None
+    category_id: UUID
+    count: int
+
+
+@dataclass(frozen=True)
+class HistorySuggestion:
+    """Validated history for a pending transaction's counterparty.
+
+    ``preselected`` is the most frequent validated outcome; ``alternatives``
+    holds the other outcomes, most frequent first. The validation queue
+    recomputes this when it opens, so nothing is stored.
     """
 
     transaction_id: UUID
     counterparty: str
-    transaction_type: TransactionType
-    cost_center_id: UUID | None
-    category_id: UUID
+    preselected: HistoryOutcome
+    alternatives: tuple[HistoryOutcome, ...]
 
 
 @dataclass(frozen=True)
@@ -65,16 +73,15 @@ class ClassificationResult:
 
     ``classified_by_rule`` and ``classified_by_history`` count transactions that
     received a category from that layer. ``classified_by_default`` counts
-    transactions whose cost center was filled by the account default (they stay
-    unclassified and in the queue). ``unclassified`` counts transactions that
-    still have no category after all layers.
+    transactions that received only their cost center from the account default
+    (they stay unclassified and in the queue). ``unclassified`` counts
+    transactions that still have no category after all layers.
     """
 
     classified_by_rule: int = 0
     classified_by_history: int = 0
     classified_by_default: int = 0
     unclassified: int = 0
-    history_suggestions: tuple[HistorySuggestion, ...] = ()
 
 
 def classify_pending(
@@ -86,14 +93,25 @@ def classify_pending(
     When ``transaction_ids`` is given, only those transactions are considered;
     otherwise every eligible transaction in the profile is classified. The
     engine never validates anything and never touches validated transactions.
+    Ambiguous history is not returned here; the validation queue asks
+    ``suggest_from_history`` for it.
     """
+    return _classify(session, transaction_ids, previous_rule_ids={})
+
+
+def _classify(
+    session: Session,
+    transaction_ids: Sequence[UUID] | None,
+    *,
+    previous_rule_ids: Mapping[UUID, UUID | None],
+) -> ClassificationResult:
     targets = _load_unclassified(session, transaction_ids)
     if not targets:
         return ClassificationResult()
 
-    classified_by_rule = _apply_rules(session, targets)
+    classified_by_rule = _apply_rules(session, targets, previous_rule_ids)
     remaining = [txn for txn in targets if txn.category_id is None]
-    classified_by_history, suggestions = _apply_history(session, remaining)
+    classified_by_history = _apply_history(session, remaining)
     classified_by_default = _apply_default_cost_center(session, targets)
     unclassified = sum(1 for txn in targets if txn.category_id is None)
 
@@ -103,7 +121,6 @@ def classify_pending(
         classified_by_history=classified_by_history,
         classified_by_default=classified_by_default,
         unclassified=unclassified,
-        history_suggestions=tuple(suggestions),
     )
 
 
@@ -117,15 +134,45 @@ def reclassify_pending(
     engine (rules or history) or that are still unclassified are reset. A
     pending row the user already classified by hand (``origin`` manual or
     template with a category set) is left untouched, as are validated rows.
+    A rule's hit is only counted when a row moves to a different rule.
     """
     targets = _load_reclassify_targets(session, transaction_ids)
+    previous_rule_ids = {txn.id: txn.rule_id for txn in targets}
     for txn in targets:
         txn.transaction_type = _default_type(txn.amount_minor).value
         txn.category_id = None
         txn.cost_center_id = None
         txn.origin = _ORIGIN_PLACEHOLDER
         txn.rule_id = None
-    return classify_pending(session, transaction_ids)
+    return _classify(session, transaction_ids, previous_rule_ids=previous_rule_ids)
+
+
+def suggest_from_history(
+    session: Session, transaction_id: UUID
+) -> HistorySuggestion | None:
+    """Return the validated history suggestion for one pending transaction.
+
+    Returns None when the transaction does not exist, is not pending, is
+    paired, has no counterparty, or its counterparty has no validated history.
+    """
+    txn = session.get(Transaction, transaction_id)
+    if (
+        txn is None
+        or txn.status != TransactionStatus.PENDING.value
+        or txn.paired_transaction_id is not None
+        or txn.counterparty is None
+    ):
+        return None
+    outcomes = _validated_outcomes(session, {txn.counterparty}).get(txn.counterparty)
+    if not outcomes:
+        return None
+    ranked = _ranked_outcomes(outcomes)
+    return HistorySuggestion(
+        transaction_id=txn.id,
+        counterparty=txn.counterparty,
+        preselected=ranked[0],
+        alternatives=tuple(ranked[1:]),
+    )
 
 
 @dataclass(frozen=True)
@@ -285,56 +332,82 @@ def _apply_rule(txn: Transaction, rule: Rule) -> None:
     txn.rule_id = rule.id
 
 
-def _apply_rules(session: Session, targets: list[Transaction]) -> int:
+def _apply_rules(
+    session: Session,
+    targets: list[Transaction],
+    previous_rule_ids: Mapping[UUID, UUID | None],
+) -> int:
     rules = sorted_active_rules(session)
     count = 0
     for txn in targets:
         rule = _first_matching_rule(rules, txn)
         if rule is not None:
             _apply_rule(txn, rule)
-            rule.hit_count += 1
-            rule.last_hit_at = datetime.now(UTC)
+            if previous_rule_ids.get(txn.id) != rule.id:
+                rule.hit_count += 1
+                rule.last_hit_at = datetime.now(UTC)
             count += 1
     return count
 
 
-def _apply_history(
-    session: Session, targets: list[Transaction]
-) -> tuple[int, list[HistorySuggestion]]:
-    """Classify from validated history when a counterparty is unambiguous.
+_Outcome = tuple[str, UUID | None, UUID]
 
-    A counterparty with a single validated outcome is applied (origin history).
-    A counterparty with several outcomes stays unclassified; its most frequent
-    outcome is returned as a suggestion for the validation queue.
-    """
-    if not targets:
-        return 0, []
 
-    counterparts = {txn.counterparty for txn in targets if txn.counterparty}
-    if not counterparts:
-        return 0, []
-
+def _validated_outcomes(
+    session: Session, counterparties: set[str]
+) -> dict[str, Counter[_Outcome]]:
+    """Count validated (type, cost center, category) outcomes per counterparty."""
     validated = list(
         session.execute(
             select(Transaction).where(
                 Transaction.status == TransactionStatus.VALIDATED.value,
                 Transaction.category_id.is_not(None),
-                Transaction.counterparty.in_(counterparts),
+                Transaction.counterparty.in_(counterparties),
             )
         ).scalars()
     )
 
-    history: dict[str, Counter[tuple[str, UUID | None, UUID | None]]] = {}
+    history: dict[str, Counter[_Outcome]] = {}
     for row in validated:
         counterparty = row.counterparty
-        if counterparty is None:
+        if counterparty is None or row.category_id is None:
             continue
         history.setdefault(counterparty, Counter())[
             (row.transaction_type, row.cost_center_id, row.category_id)
         ] += 1
+    return history
 
+
+def _ranked_outcomes(outcomes: Counter[_Outcome]) -> list[HistoryOutcome]:
+    """Order outcomes by descending count with a deterministic tie-break."""
+    ordered = sorted(
+        outcomes.items(),
+        key=lambda item: (-item[1], item[0][0], str(item[0][1]), str(item[0][2])),
+    )
+    return [
+        HistoryOutcome(
+            transaction_type=TransactionType(outcome_type),
+            cost_center_id=cost_center_id,
+            category_id=category_id,
+            count=count,
+        )
+        for (outcome_type, cost_center_id, category_id), count in ordered
+    ]
+
+
+def _apply_history(session: Session, targets: list[Transaction]) -> int:
+    """Classify from validated history when a counterparty is unambiguous.
+
+    A counterparty with a single validated outcome is applied (origin history).
+    A counterparty with several outcomes stays unclassified; the validation
+    queue gets its preselection from ``suggest_from_history``.
+    """
+    counterparts = {txn.counterparty for txn in targets if txn.counterparty}
+    if not counterparts:
+        return 0
+
+    history = _validated_outcomes(session, counterparts)
     count = 0
-    suggestions: list[HistorySuggestion] = []
     for txn in targets:
         if txn.counterparty is None:
             continue
@@ -345,30 +418,13 @@ def _apply_history(
             ((outcome_type, cost_center_id, category_id), _) = next(
                 iter(outcomes.items())
             )
-            if category_id is None:
-                continue
             txn.transaction_type = outcome_type
             txn.cost_center_id = cost_center_id
             txn.category_id = category_id
             txn.origin = ClassificationOrigin.HISTORY.value
             txn.rule_id = None
             count += 1
-        else:
-            ((outcome_type, cost_center_id, category_id), _) = outcomes.most_common(1)[
-                0
-            ]
-            if category_id is None:
-                continue
-            suggestions.append(
-                HistorySuggestion(
-                    transaction_id=txn.id,
-                    counterparty=txn.counterparty,
-                    transaction_type=TransactionType(outcome_type),
-                    cost_center_id=cost_center_id,
-                    category_id=category_id,
-                )
-            )
-    return count, suggestions
+    return count
 
 
 def _apply_default_cost_center(session: Session, targets: list[Transaction]) -> int:
@@ -392,5 +448,6 @@ def _apply_default_cost_center(session: Session, targets: list[Transaction]) -> 
             default_cost_center_id = default_by_account.get(txn.account_id)
             if default_cost_center_id is not None:
                 txn.cost_center_id = default_cost_center_id
-                count += 1
+                if txn.category_id is None:
+                    count += 1
     return count

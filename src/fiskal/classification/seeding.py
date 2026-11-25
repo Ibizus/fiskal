@@ -112,6 +112,8 @@ def _seed_rules(session: Session) -> int:
                 priority=seed_rule.priority,
                 mode=seed_rule.mode,
                 pattern=seed_rule.pattern,
+                amount_min_minor=seed_rule.amount_min_minor,
+                amount_max_minor=seed_rule.amount_max_minor,
                 transaction_type=seed_rule.transaction_type,
                 category_id=category.id,
                 cost_center_id=cost_center_id,

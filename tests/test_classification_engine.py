@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from fiskal.classification import (
     apply_reapply_validated,
     classify_pending,
+    confirm_pair,
     create_rule,
     delete_rule,
     find_rule_collisions,
@@ -21,6 +22,8 @@ from fiskal.classification import (
     propose_rule_from_correction,
     reclassify_pending,
     seed_neutral_data,
+    suggest_from_history,
+    unpair,
     update_rule,
 )
 from fiskal.db.base import Base
@@ -37,6 +40,8 @@ from fiskal.domain.enums import (
 )
 from fiskal.domain.rule_matching import RuleCondition, RuleValidationError
 from fiskal.domain.seed import DEFAULT_CATEGORIES, DEFAULT_COST_CENTERS, DEFAULT_RULES
+
+FOOD_VISITS = 3
 
 
 @pytest.fixture
@@ -191,6 +196,111 @@ def test_rule_hit_count_and_last_hit_are_updated(session: Session) -> None:
     assert rule.last_hit_at is not None
 
 
+def test_reclassify_does_not_inflate_hit_count(session: Session) -> None:
+    """Rule changes that reclassify the queue do not recount existing hits."""
+    account = _account(session)
+    category = _category(session)
+    rule = _rule(session, category=category)
+    _transaction(session, account=account)
+    classify_pending(session)
+    session.refresh(rule)
+    first_hit_at = rule.last_hit_at
+
+    other = create_rule(
+        session,
+        priority=5,
+        mode="contains",
+        pattern="unrelated",
+        transaction_type="expense",
+        category_id=category.id,
+        cost_center_id=None,
+        amount_min_minor=None,
+        amount_max_minor=None,
+        day_of_month_min=None,
+        day_of_month_max=None,
+        is_active=True,
+    )
+    update_rule(
+        session,
+        other.id,
+        priority=6,
+        mode="contains",
+        pattern="still unrelated",
+        transaction_type="expense",
+        category_id=category.id,
+        cost_center_id=None,
+        amount_min_minor=None,
+        amount_max_minor=None,
+        day_of_month_min=None,
+        day_of_month_max=None,
+        is_active=True,
+    )
+    reclassify_pending(session)
+
+    session.refresh(rule)
+    assert rule.hit_count == 1
+    assert rule.last_hit_at == first_hit_at
+
+
+def test_reclassify_counts_hit_when_row_moves_to_another_rule(
+    session: Session,
+) -> None:
+    """A row that moves to a new winning rule counts one hit for that rule."""
+    account = _account(session)
+    category = _category(session)
+    old = _rule(session, priority=10, category=category)
+    _transaction(session, account=account)
+    classify_pending(session)
+
+    new = create_rule(
+        session,
+        priority=1,
+        mode="contains",
+        pattern="grocery",
+        transaction_type="expense",
+        category_id=category.id,
+        cost_center_id=None,
+        amount_min_minor=None,
+        amount_max_minor=None,
+        day_of_month_min=None,
+        day_of_month_max=None,
+        is_active=True,
+    )
+
+    session.refresh(old)
+    session.refresh(new)
+    assert old.hit_count == 1
+    assert new.hit_count == 1
+
+
+def test_confirm_pair_and_unpair_clear_rule_link(session: Session) -> None:
+    """A rule-classified leg loses its rule link when paired or unpaired."""
+    source = _account(session, name="Source")
+    target = _account(session, name="Target")
+    category = _category(session)
+    rule = _rule(session, pattern="move", category=category)
+    left = _transaction(
+        session, account=source, description="move money", amount_minor=-5000
+    )
+    right = _transaction(
+        session, account=target, description="incoming", amount_minor=5000
+    )
+    classify_pending(session)
+    session.refresh(left)
+    assert left.rule_id == rule.id
+
+    confirm_pair(session, left.id, right.id)
+    session.refresh(left)
+    assert left.rule_id is None
+    assert left.transaction_type == TransactionType.INTERNAL_TRANSFER.value
+
+    left.rule_id = rule.id
+    session.commit()
+    unpair(session, left.id, right.id)
+    session.refresh(left)
+    assert left.rule_id is None
+
+
 def test_user_rule_beats_seed_rule_regardless_of_priority(session: Session) -> None:
     """User rules always win over seed rules, whatever the numeric priority."""
     account = _account(session)
@@ -304,18 +414,20 @@ def test_history_several_outcomes_stays_unclassified(session: Session) -> None:
     assert pending.category_id is None
     assert result.classified_by_history == 0
     assert result.unclassified == 1
-    assert len(result.history_suggestions) == 1
-    suggestion = result.history_suggestions[0]
+    suggestion = suggest_from_history(session, pending.id)
+    assert suggestion is not None
     assert suggestion.transaction_id == pending.id
-    assert suggestion.category_id in {food.id, misc.id}
+    assert {suggestion.preselected.category_id} | {
+        alt.category_id for alt in suggestion.alternatives
+    } == {food.id, misc.id}
 
 
 def test_history_most_frequent_outcome_is_suggested(session: Session) -> None:
-    """The most frequent validated outcome is returned as the suggestion."""
+    """The most frequent validated outcome is preselected, with alternatives."""
     account = _account(session)
     food = _category(session, key="category.food")
     misc = _category(session, key="category.misc")
-    for _ in range(3):
+    for _ in range(FOOD_VISITS):
         _transaction(
             session,
             account=account,
@@ -332,12 +444,76 @@ def test_history_most_frequent_outcome_is_suggested(session: Session) -> None:
         category=misc,
         transaction_type=TransactionType.EXPENSE,
     )
-    _transaction(session, account=account, counterparty="Fresh Market")
+    pending = _transaction(session, account=account, counterparty="Fresh Market")
 
-    result = classify_pending(session)
+    classify_pending(session)
+    suggestion = suggest_from_history(session, pending.id)
 
-    assert len(result.history_suggestions) == 1
-    assert result.history_suggestions[0].category_id == food.id
+    assert suggestion is not None
+    assert suggestion.counterparty == "Fresh Market"
+    assert suggestion.preselected.category_id == food.id
+    assert suggestion.preselected.count == FOOD_VISITS
+    assert suggestion.preselected.transaction_type == TransactionType.EXPENSE
+    assert [(alt.category_id, alt.count) for alt in suggestion.alternatives] == [
+        (misc.id, 1)
+    ]
+
+
+def test_history_suggestion_survives_rule_changes(session: Session) -> None:
+    """The suggestion is recomputed after a rule change reclassifies the queue."""
+    account = _account(session)
+    food = _category(session, key="category.food")
+    misc = _category(session, key="category.misc")
+    for category in (food, food, misc):
+        _transaction(
+            session,
+            account=account,
+            counterparty="Fresh Market",
+            status=TransactionStatus.VALIDATED,
+            category=category,
+            transaction_type=TransactionType.EXPENSE,
+        )
+    pending = _transaction(session, account=account, counterparty="Fresh Market")
+    classify_pending(session)
+
+    create_rule(
+        session,
+        priority=1,
+        mode="contains",
+        pattern="unrelated",
+        transaction_type="expense",
+        category_id=misc.id,
+        cost_center_id=None,
+        amount_min_minor=None,
+        amount_max_minor=None,
+        day_of_month_min=None,
+        day_of_month_max=None,
+        is_active=True,
+    )
+
+    suggestion = suggest_from_history(session, pending.id)
+    assert suggestion is not None
+    assert suggestion.preselected.category_id == food.id
+
+
+def test_history_suggestion_is_none_without_history(session: Session) -> None:
+    """No suggestion for unknown, validated, or history-less transactions."""
+    account = _account(session)
+    food = _category(session)
+    pending = _transaction(session, account=account, counterparty="Nobody")
+    validated = _transaction(
+        session,
+        account=account,
+        counterparty="Nobody",
+        status=TransactionStatus.VALIDATED,
+        category=food,
+    )
+
+    assert suggest_from_history(session, pending.id) is not None
+    assert suggest_from_history(session, validated.id) is None
+    assert suggest_from_history(session, uuid4()) is None
+    other = _transaction(session, account=account, counterparty="Someone Else")
+    assert suggest_from_history(session, other.id) is None
 
 
 def test_default_cost_center_only_fills_cost_center(session: Session) -> None:
@@ -355,6 +531,24 @@ def test_default_cost_center_only_fills_cost_center(session: Session) -> None:
     assert txn.category_id is None
     assert txn.transaction_type == TransactionType.EXPENSE.value
     assert txn.origin == ClassificationOrigin.MANUAL.value
+
+
+def test_default_cost_center_count_excludes_categorised_rows(
+    session: Session,
+) -> None:
+    """Rows a rule categorised are not counted as classified by the default."""
+    cost_center = _cost_center(session)
+    account = _account(session, default_cc=cost_center)
+    category = _category(session)
+    _rule(session, category=category)
+    txn = _transaction(session, account=account)
+
+    result = classify_pending(session)
+
+    session.refresh(txn)
+    assert txn.cost_center_id == cost_center.id
+    assert result.classified_by_rule == 1
+    assert result.classified_by_default == 0
 
 
 def test_default_cost_center_never_overrides_earlier_cost_center(
@@ -632,3 +826,51 @@ def test_seed_neutral_data_never_overwrites_custom_names(session: Session) -> No
 
     session.refresh(category)
     assert category.custom_name == "Groceries"
+
+
+def test_seed_income_rules_do_not_match_outgoing_payments(session: Session) -> None:
+    """An outgoing payment mentioning salary is not classified as income."""
+    seed_neutral_data(session)
+    account = _account(session)
+    outgoing = _transaction(
+        session, account=account, description="salary payment", amount_minor=-2000
+    )
+    payroll_fee = _transaction(
+        session, account=account, description="payroll service", amount_minor=-300
+    )
+    incoming = _transaction(
+        session, account=account, description="monthly salary", amount_minor=2000
+    )
+
+    classify_pending(session)
+
+    for txn in (outgoing, payroll_fee, incoming):
+        session.refresh(txn)
+    assert outgoing.category_id is None
+    assert outgoing.transaction_type == TransactionType.EXPENSE.value
+    assert payroll_fee.category_id is None
+    assert incoming.transaction_type == TransactionType.INCOME.value
+    assert incoming.origin == ClassificationOrigin.RULE.value
+
+
+def test_seed_withdrawal_rule_does_not_match_positive_reversal(
+    session: Session,
+) -> None:
+    """A positive cash withdrawal reversal is not classified as a withdrawal."""
+    seed_neutral_data(session)
+    account = _account(session)
+    reversal = _transaction(
+        session, account=account, description="cash withdrawal", amount_minor=4000
+    )
+    withdrawal = _transaction(
+        session, account=account, description="cash withdrawal", amount_minor=-4000
+    )
+
+    classify_pending(session)
+
+    session.refresh(reversal)
+    session.refresh(withdrawal)
+    assert reversal.category_id is None
+    assert reversal.transaction_type == TransactionType.INCOME.value
+    assert withdrawal.origin == ClassificationOrigin.RULE.value
+    assert withdrawal.transaction_type == TransactionType.EXPENSE.value

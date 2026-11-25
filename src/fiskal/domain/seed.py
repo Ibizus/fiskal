@@ -48,6 +48,8 @@ class SeedRule:
         category_key: Translation key of the category the rule assigns.
         cost_center_key: Optional translation key of the cost center, or
             ``None`` to leave the cost center to the account default.
+        amount_min_minor: Optional inclusive lower amount bound in minor units.
+        amount_max_minor: Optional inclusive upper amount bound in minor units.
     """
 
     priority: int
@@ -56,6 +58,8 @@ class SeedRule:
     transaction_type: str
     category_key: str
     cost_center_key: str | None
+    amount_min_minor: int | None = None
+    amount_max_minor: int | None = None
 
 
 DEFAULT_CATEGORIES: Final[tuple[Category, ...]] = (
@@ -82,7 +86,9 @@ DEFAULT_COST_CENTERS: Final[tuple[CostCenter, ...]] = (
 # The seed rules are deliberately tiny and generic: no merchants, no bank- or
 # country-specific text, and no personal data. Real household rules come from
 # the validation queue. Each rule leaves the cost center unset so the account's
-# default cost center applies as the last classification layer.
+# default cost center applies as the last classification layer. Amount bounds
+# keep each rule on the matching sign: income rules only match incoming amounts
+# and the withdrawal rule only matches outgoing amounts.
 DEFAULT_RULES: Final[tuple[SeedRule, ...]] = (
     SeedRule(
         priority=100,
@@ -91,6 +97,7 @@ DEFAULT_RULES: Final[tuple[SeedRule, ...]] = (
         transaction_type="income",
         category_key="category.income",
         cost_center_key=None,
+        amount_min_minor=1,
     ),
     SeedRule(
         priority=90,
@@ -99,6 +106,7 @@ DEFAULT_RULES: Final[tuple[SeedRule, ...]] = (
         transaction_type="income",
         category_key="category.income",
         cost_center_key=None,
+        amount_min_minor=1,
     ),
     SeedRule(
         priority=80,
@@ -107,5 +115,6 @@ DEFAULT_RULES: Final[tuple[SeedRule, ...]] = (
         transaction_type="expense",
         category_key="category.misc",
         cost_center_key=None,
+        amount_max_minor=-1,
     ),
 )

@@ -5,18 +5,16 @@ the account default cost center), rule CRUD and neutral seed loading. Real
 personal patterns belong in a local profile directory outside this repository.
 """
 
-from fiskal.classification.classifier import (
-    ClassificationSuggestion,
-    Classifier,
-)
 from fiskal.classification.engine import (
     ClassificationResult,
+    HistoryOutcome,
     HistorySuggestion,
     ReapplyChange,
     apply_reapply_validated,
     classify_pending,
     preview_reapply_validated,
     reclassify_pending,
+    suggest_from_history,
 )
 from fiskal.classification.pairing_service import (
     confirm_pair,
@@ -38,8 +36,7 @@ from fiskal.classification.seeding import SeedResult, seed_neutral_data
 
 __all__ = [
     "ClassificationResult",
-    "ClassificationSuggestion",
-    "Classifier",
+    "HistoryOutcome",
     "HistorySuggestion",
     "ReapplyChange",
     "RuleNotFoundError",
@@ -58,6 +55,7 @@ __all__ = [
     "reclassify_pending",
     "reject_pair",
     "seed_neutral_data",
+    "suggest_from_history",
     "unpair",
     "update_rule",
 ]
