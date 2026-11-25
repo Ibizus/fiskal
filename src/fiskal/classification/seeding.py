@@ -1,8 +1,11 @@
 """Neutral seed loading.
 
 Installs the repository's default categories, cost centers and seed rules into
-a profile database idempotently. Seeding only inserts missing rows by their
-natural key: it never overwrites user rules or user-customised names.
+a profile database. Categories and cost centers are inserted idempotently by
+translation key and never overwrite user-customised names. Rule seeding is a
+first-run action: seed rules are installed only while the profile has no rules
+at all, so deleted or edited seed rules never come back. Restoring the default
+rules later would be a separate, explicit feature.
 """
 
 from __future__ import annotations
@@ -28,11 +31,11 @@ class SeedResult:
 
 
 def seed_neutral_data(session: Session) -> SeedResult:
-    """Install default categories, cost centers and seed rules idempotently.
+    """Install default categories, cost centers and, on first run, seed rules.
 
-    Categories and cost centers are matched by translation key; seed rules are
-    matched by their (seed, mode, pattern, type) signature. Existing rows are
-    never modified, so user rules and user-customised names survive a re-run.
+    Categories and cost centers are matched by translation key and existing
+    rows are never modified. Seed rules are installed only when the profile has
+    no rules at all (seed or user, active or not); otherwise nothing is added.
     """
     categories_created = _seed_categories(session)
     cost_centers_created = _seed_cost_centers(session)
@@ -78,6 +81,8 @@ def _seed_cost_centers(session: Session) -> int:
 
 
 def _seed_rules(session: Session) -> int:
+    if session.execute(select(Rule.id).limit(1)).first() is not None:
+        return 0
     categories = {
         category.name_key: category
         for category in session.execute(select(Category)).scalars()
@@ -96,16 +101,6 @@ def _seed_rules(session: Session) -> int:
             if seed_rule.cost_center_key is not None
             else None
         )
-        existing = session.execute(
-            select(Rule).where(
-                Rule.origin == RuleOrigin.SEED.value,
-                Rule.mode == seed_rule.mode,
-                Rule.pattern == seed_rule.pattern,
-                Rule.transaction_type == seed_rule.transaction_type,
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
-            continue
         validate_pattern(RuleMatchMode(seed_rule.mode), seed_rule.pattern)
         session.add(
             Rule(

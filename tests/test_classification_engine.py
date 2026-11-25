@@ -815,6 +815,58 @@ def test_seed_neutral_data_is_idempotent(session: Session) -> None:
     assert len(rules) == len(DEFAULT_RULES)
 
 
+def test_seed_does_not_resurrect_deleted_seed_rule(session: Session) -> None:
+    """Deleting a seed rule and reseeding does not bring it back."""
+    seed_neutral_data(session)
+    salary = session.query(Rule).filter_by(pattern="salary").one()
+    delete_rule(session, salary.id)
+
+    result = seed_neutral_data(session)
+
+    assert result.rules_created == 0
+    assert session.query(Rule).filter_by(pattern="salary").count() == 0
+    assert session.query(Rule).count() == len(DEFAULT_RULES) - 1
+
+
+def test_seed_does_not_duplicate_edited_seed_rule(session: Session) -> None:
+    """An edited seed rule is not re-added next to the edited copy."""
+    seed_neutral_data(session)
+    salary = session.query(Rule).filter_by(pattern="salary").one()
+    update_rule(
+        session,
+        salary.id,
+        priority=salary.priority,
+        mode=salary.mode,
+        pattern="monthly wage",
+        transaction_type=salary.transaction_type,
+        category_id=salary.category_id,
+        cost_center_id=None,
+        amount_min_minor=1,
+        amount_max_minor=None,
+        day_of_month_min=None,
+        day_of_month_max=None,
+        is_active=True,
+    )
+
+    result = seed_neutral_data(session)
+
+    assert result.rules_created == 0
+    assert session.query(Rule).filter_by(pattern="salary").count() == 0
+    assert session.query(Rule).count() == len(DEFAULT_RULES)
+
+
+def test_seed_skips_rules_when_any_rule_exists(session: Session) -> None:
+    """A profile with an existing (even inactive) rule gets no seed rules."""
+    category = _category(session)
+    _rule(session, category=category, is_active=False)
+
+    result = seed_neutral_data(session)
+
+    assert result.rules_created == 0
+    assert result.categories_created == len(DEFAULT_CATEGORIES) - 1
+    assert session.query(Rule).count() == 1
+
+
 def test_seed_neutral_data_never_overwrites_custom_names(session: Session) -> None:
     """A customised category name survives a second seeding run."""
     seed_neutral_data(session)

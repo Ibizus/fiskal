@@ -114,9 +114,12 @@ history always shows a preview first.
 ### Neutral seed data
 
 The repository ships neutral default categories, cost centers and a tiny set of
-seed rules (all non-personal and merchant-independent). They are installed into
-a profile database idempotently and never overwrite user rules or user-customised
-names:
+seed rules (all non-personal and merchant-independent). Categories and cost
+centers are installed idempotently by key and never overwrite user-customised
+names. Rule seeding is a first-run action: seed rules are installed only while
+the profile has no rules at all, so a deleted or edited seed rule never comes
+back on a later run. Restoring the default rules would be a separate, explicit
+feature:
 
 ```python
 from fiskal.classification import seed_neutral_data
