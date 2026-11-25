@@ -121,6 +121,12 @@ Use conventional commits for all changes:
 3. Ensure CI passes locally before pushing.
 4. The captain reviews and merges every PR; there is no automatic merge.
 
+## File size and complexity
+
+A file may grow as long as it keeps a single responsibility; split it when it
+starts to mix concerns. There is no numeric file-size limit and no CI check for
+file size.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
