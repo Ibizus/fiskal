@@ -204,6 +204,7 @@ def confirm_pair(session: Session, left_id: UUID, right_id: UUID) -> None:
         txn.category_id = None
         txn.cost_center_id = None
         txn.origin = ClassificationOrigin.MANUAL.value
+        txn.rule_id = None
 
     session.commit()
 
@@ -251,6 +252,7 @@ def unpair(session: Session, left_id: UUID, right_id: UUID) -> None:
         txn.category_id = None
         txn.cost_center_id = None
         txn.origin = ClassificationOrigin.MANUAL.value
+        txn.rule_id = None
         txn.status = TransactionStatus.PENDING.value
 
     session.commit()

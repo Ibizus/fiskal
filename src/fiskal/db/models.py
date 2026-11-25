@@ -30,6 +30,8 @@ from fiskal.domain.enums import (
     CategoryKind,
     CategoryNature,
     ClassificationOrigin,
+    RuleMatchMode,
+    RuleOrigin,
     TransactionStatus,
     TransactionType,
 )
@@ -53,6 +55,14 @@ def _category_nature_values() -> tuple[str, ...]:
 
 def _classification_origin_values() -> tuple[str, ...]:
     return tuple(member.value for member in ClassificationOrigin)
+
+
+def _rule_mode_values() -> tuple[str, ...]:
+    return tuple(member.value for member in RuleMatchMode)
+
+
+def _rule_origin_values() -> tuple[str, ...]:
+    return tuple(member.value for member in RuleOrigin)
 
 
 class Account(Base):
@@ -130,6 +140,82 @@ class Category(Base):
     )
 
 
+class Rule(Base):
+    """A configurable condition that assigns type, cost center and category.
+
+    The text condition matches normalized fields only (the normalized
+    description and the counterparty), never raw bank text. ``mode`` selects
+    the case-insensitive ``contains`` match or the optional regex advanced
+    mode. Amount and day-of-month ranges further narrow the match. User rules
+    always beat seed rules; within each group the numeric ``priority`` decides
+    and the first match wins, with a deterministic tie-break on ``id``.
+
+    ``cost_center_id`` is optional: a rule that leaves it unset lets the
+    account's default cost center fill it as the last classification layer.
+    ``category_id`` is required because a rule always classifies a transaction,
+    and ``origin`` is only meaningful once a category is set.
+    """
+
+    __tablename__ = "rules"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    priority: Mapped[int] = mapped_column(Integer)
+    mode: Mapped[str] = mapped_column(String(10))
+    pattern: Mapped[str] = mapped_column(String(500))
+    amount_min_minor: Mapped[int | None] = mapped_column(Integer)
+    amount_max_minor: Mapped[int | None] = mapped_column(Integer)
+    day_of_month_min: Mapped[int | None] = mapped_column(Integer)
+    day_of_month_max: Mapped[int | None] = mapped_column(Integer)
+    transaction_type: Mapped[str] = mapped_column(String(20))
+    cost_center_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("cost_centers.id"),
+    )
+    category_id: Mapped[UUID] = mapped_column(ForeignKey("categories.id"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    origin: Mapped[str] = mapped_column(String(10))
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_hit_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        CheckConstraint(
+            f"mode IN {_rule_mode_values()}",
+            name="ck_rules_mode",
+        ),
+        CheckConstraint(
+            f"origin IN {_rule_origin_values()}",
+            name="ck_rules_origin",
+        ),
+        CheckConstraint(
+            f"transaction_type IN {_transaction_type_values()}",
+            name="ck_rules_type",
+        ),
+        CheckConstraint(
+            "amount_min_minor IS NULL OR amount_max_minor IS NULL OR "
+            "amount_min_minor <= amount_max_minor",
+            name="ck_rules_amount_range",
+        ),
+        CheckConstraint(
+            "day_of_month_min IS NULL OR day_of_month_max IS NULL OR "
+            "day_of_month_min <= day_of_month_max",
+            name="ck_rules_day_range",
+        ),
+        CheckConstraint(
+            "day_of_month_min IS NULL OR "
+            "(day_of_month_min >= 1 AND day_of_month_min <= 31)",
+            name="ck_rules_day_min_bounds",
+        ),
+        CheckConstraint(
+            "day_of_month_max IS NULL OR "
+            "(day_of_month_max >= 1 AND day_of_month_max <= 31)",
+            name="ck_rules_day_max_bounds",
+        ),
+        CheckConstraint(
+            "hit_count >= 0",
+            name="ck_rules_hit_count_nonnegative",
+        ),
+    )
+
+
 class Import(Base):
     """One act of reading a downloaded bank file and creating or matching rows."""
 
@@ -203,6 +289,7 @@ class Transaction(Base):
     paired_transaction_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("transactions.id"),
     )
+    rule_id: Mapped[UUID | None] = mapped_column(ForeignKey("rules.id"))
 
     __table_args__ = (
         UniqueConstraint(

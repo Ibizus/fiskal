@@ -133,8 +133,8 @@ Main tables (field names match the v1 schema):
   means unclassified regardless of `origin`, so classification code keys off
   `category_id`, never `origin`), `status` (pending / validated), optional proration period
   (`proration_start_date` and `proration_end_date`), `note`, `is_manual`,
-  `identity_key` (unique per account). The `rule_id` field is deferred until
-  the classification rules table is implemented.
+  `identity_key` (unique per account), optional `rule_id` (the rule that
+  classified it, when a rule did).
 - **cost_centers**: id, `name_key`, optional `custom_name`, `group_label`,
   `is_active`, `attributes`.
 - **categories**: id, `name_key`, optional `custom_name`, `kind` (income or

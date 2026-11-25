@@ -16,6 +16,7 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from fiskal.classification.engine import classify_pending
 from fiskal.classification.pairing_service import (
     find_proposals_for_transaction_ids,
 )
@@ -180,6 +181,8 @@ def import_statement(
     new_transaction_ids = [orm_txn.id for orm_txn in orm_transactions]
     pair_proposals = find_proposals_for_transaction_ids(session, new_transaction_ids)
 
+    classification = classify_pending(session, new_transaction_ids)
+
     summary = ImportSummary(
         first_transaction_date=first_transaction_date,
         last_transaction_date=last_transaction_date,
@@ -190,6 +193,10 @@ def import_statement(
         warnings=tuple(warnings),
         near_duplicates=tuple(near_duplicates),
         proposed_pair_count=len({p.source_id for p in pair_proposals}),
+        classified_by_rule=classification.classified_by_rule,
+        classified_by_history=classification.classified_by_history,
+        classified_by_default=classification.classified_by_default,
+        unclassified=classification.unclassified,
     )
     return ImportResult(
         import_id=import_row.id,
