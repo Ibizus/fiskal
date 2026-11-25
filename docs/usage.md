@@ -101,8 +101,9 @@ classification cascade over the new, pending movements:
    movements were classified by rule.
 2. **History** — when every validated transaction with the same normalized
    counterparty was classified the same way, that classification is applied.
-   When history disagrees, the movement stays unclassified and the most
-   frequent outcome is preselected for the validation queue.
+   When history disagrees, the movement stays unclassified; nothing is stored,
+   and the validation queue recomputes the most frequent outcome (with the
+   alternatives) through ``suggest_from_history`` to preselect it.
 3. **Account default cost center** — the last layer fills only the cost center
    when no earlier layer set one, and never sets type or category.
 
