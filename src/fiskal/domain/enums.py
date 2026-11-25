@@ -47,3 +47,17 @@ class ClassificationOrigin(StrEnum):
     HISTORY = "history"
     MANUAL = "manual"
     TEMPLATE = "template"
+
+
+class RuleMatchMode(StrEnum):
+    """How a rule matches its text condition."""
+
+    CONTAINS = "contains"
+    REGEX = "regex"
+
+
+class RuleOrigin(StrEnum):
+    """Where a classification rule came from."""
+
+    SEED = "seed"
+    USER = "user"

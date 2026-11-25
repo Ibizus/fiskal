@@ -73,6 +73,10 @@ class ImportSummary:
     warnings: tuple[str, ...]
     near_duplicates: tuple[NearDuplicate, ...]
     proposed_pair_count: int = 0
+    classified_by_rule: int = 0
+    classified_by_history: int = 0
+    classified_by_default: int = 0
+    unclassified: int = 0
 
     @property
     def adds_no_movement(self) -> bool:

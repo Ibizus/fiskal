@@ -26,6 +26,7 @@ from fiskal.db.models import (
     CostCenter,
     Import,
     RejectedPair,
+    Rule,
     Transaction,
 )
 from fiskal.domain.enums import (
@@ -380,6 +381,21 @@ def _seed_rejected_pair(session: Session) -> None:
     session.commit()
 
 
+def _seed_rule(session: Session) -> None:
+    category = _make_category(session)
+    session.add(
+        Rule(
+            priority=1,
+            mode="contains",
+            pattern="test",
+            transaction_type="expense",
+            category_id=category.id,
+            origin="user",
+        )
+    )
+    session.commit()
+
+
 @pytest.mark.parametrize(
     "seed",
     [
@@ -388,7 +404,7 @@ def _seed_rejected_pair(session: Session) -> None:
     ],
 )
 def test_downgrade_with_pairing_data_is_refused(tmp_path: Path, seed: Any) -> None:
-    """Downgrading loses pairing decisions, so it is refused when any exist."""
+    """Dropping the rules column rebuilds transactions, so pairing data blocks it."""
     db_path = tmp_path / "populated.db"
     _run_alembic(db_path, "upgrade", "head")
     tables_before = _table_names(db_path)
@@ -401,7 +417,91 @@ def test_downgrade_with_pairing_data_is_refused(tmp_path: Path, seed: Any) -> No
     assert result.returncode != 0
     assert _table_names(db_path) == tables_before
     current = _run_alembic(db_path, "current")
-    assert "694949b009bf (head)" in current.stdout
+    assert "dfcac1b70385 (head)" in current.stdout
+    _run_alembic(db_path, "check")
+
+
+def _raw_pairing_seed(db_path: Path, *, kind: str) -> None:
+    """Seed pairing data with raw SQL so the dropped rule_id column is absent."""
+    engine = make_engine(f"sqlite:///{db_path}")
+    account_a = uuid4().hex
+    account_b = uuid4().hex
+    txn_a = uuid4().hex
+    txn_b = uuid4().hex
+    with engine.begin() as connection:
+        for account_id in (account_a, account_b):
+            connection.exec_driver_sql(
+                "INSERT INTO accounts (id, name, currency_code, is_active) "
+                "VALUES (?, 'Account', 'EUR', 1)",
+                (account_id,),
+            )
+        for txn_id, account_id, amount, identity in (
+            (txn_a, account_a, -10000, "pair-out"),
+            (txn_b, account_b, 10000, "pair-in"),
+        ):
+            connection.exec_driver_sql(
+                "INSERT INTO transactions (id, account_id, operation_date, "
+                "value_date, original_description, normalized_description, "
+                "amount_minor, balance_minor, currency_code, type, origin, "
+                "status, is_manual, identity_key) VALUES (?, ?, '2024-01-15', "
+                "'2024-01-15', 'x', 'x', ?, 0, 'EUR', 'expense', 'manual', "
+                "'pending', 0, ?)",
+                (txn_id, account_id, amount, identity),
+            )
+        if kind == "paired":
+            connection.exec_driver_sql(
+                "UPDATE transactions SET paired_transaction_id = ? WHERE id = ?",
+                (txn_b, txn_a),
+            )
+            connection.exec_driver_sql(
+                "UPDATE transactions SET paired_transaction_id = ? WHERE id = ?",
+                (txn_a, txn_b),
+            )
+        else:
+            left, right = (txn_a, txn_b) if txn_a <= txn_b else (txn_b, txn_a)
+            connection.exec_driver_sql(
+                "INSERT INTO rejected_pairs "
+                "(left_transaction_id, right_transaction_id, rejected_at) "
+                "VALUES (?, ?, '2024-01-15T00:00:00')",
+                (left, right),
+            )
+
+
+@pytest.mark.parametrize("kind", ["paired", "rejected"])
+def test_pairing_downgrade_with_pairing_data_is_refused(
+    tmp_path: Path, kind: str
+) -> None:
+    """The pairing migration's own downgrade guard refuses pairing data."""
+    db_path = tmp_path / "populated.db"
+    _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "downgrade", "694949b009bf")
+    _raw_pairing_seed(db_path, kind=kind)
+    tables_before = _table_names(db_path)
+
+    result = _run_alembic(db_path, "downgrade", "-1", check=False)
+
+    assert result.returncode != 0
+    assert _table_names(db_path) == tables_before
+    current = _run_alembic(db_path, "current")
+    assert "694949b009bf" in current.stdout
+
+
+def test_rules_downgrade_with_rules_is_refused(tmp_path: Path) -> None:
+    """Downgrading the rules table on a populated database is refused."""
+    db_path = tmp_path / "populated.db"
+    _run_alembic(db_path, "upgrade", "head")
+    tables_before = _table_names(db_path)
+    session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
+    _seed_rule(session)
+    session.close()
+
+    result = _run_alembic(db_path, "downgrade", "-1", check=False)
+
+    assert result.returncode != 0
+    assert "rules" in result.stderr
+    assert _table_names(db_path) == tables_before
+    current = _run_alembic(db_path, "current")
+    assert "dfcac1b70385 (head)" in current.stdout
     _run_alembic(db_path, "check")
 
 

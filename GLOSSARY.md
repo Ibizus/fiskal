@@ -57,6 +57,14 @@ A configurable condition that assigns type, cost center and category to a
 transaction automatically.
 _Avoid_: Filter, automation.
 
+**Rule precedence**:
+The order in which rules are tried: user rules always beat seed rules; inside
+each group the lower numeric priority wins, and the first match wins.
+
+**Rule collision**:
+Two rules that can match the same transaction. The rule editor warns when a new
+rule collides with an existing one.
+
 **Seed**:
 The neutral, non-personal default categories, cost centers and rules shipped
 with the application. Seeds are only initial data; the live source of truth is

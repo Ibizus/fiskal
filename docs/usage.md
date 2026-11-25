@@ -56,6 +56,11 @@ After an import Fiskal reports a summary with:
   limit and may have been cut short by the bank.
 - **Proposed internal-transfer pairs** — how many newly imported movements have
   a plausible counterpart in another account of the profile.
+- **Classified by rule / by history / by default** — how many of the new
+  movements received their category from a rule, from validated history, and
+  how many received only their cost center from the account default.
+- **Still unclassified** — how many of the new movements still have no
+  category and therefore wait in the validation queue.
 - **Warnings** — balance-continuity notices (a gap in history or an incoherent
   running balance) and movements skipped because their description differed
   slightly from an already-loaded movement; for each of those the summary shows
@@ -80,6 +85,44 @@ again. You can undo a confirmed pair later; both sides return to their default
 type and pending status. Pairing never changes imported bank fields.
 
 A pair cannot be confirmed or undone when either side is already validated.
+
+## Classification
+
+Right after an import, and after internal-transfer proposals, Fiskal runs a
+classification cascade over the new, pending movements:
+
+1. **Rules** — an active rule whose condition matches assigns the type, cost
+   center and category. Rules are data in the database, never code. A rule has
+   a numeric priority, a case-insensitive ``contains`` condition on the
+   normalized description and counterparty (or an optional regex advanced
+   mode), an optional amount range and an optional day-of-month range. User
+   rules always beat seed rules; inside each group the lower priority wins
+   first, ties break on the rule id. The import summary reports how many
+   movements were classified by rule.
+2. **History** — when every validated transaction with the same normalized
+   counterparty was classified the same way, that classification is applied.
+   When history disagrees, the movement stays unclassified and the most
+   frequent outcome is preselected for the validation queue.
+3. **Account default cost center** — the last layer fills only the cost center
+   when no earlier layer set one, and never sets type or category.
+
+Rules and categories are never validated by the engine: every movement remains
+``pending`` until the user confirms or corrects it in the validation queue.
+Rule changes reclassify only pending movements; a bulk reapply over validated
+history always shows a preview first.
+
+### Neutral seed data
+
+The repository ships neutral default categories, cost centers and a tiny set of
+seed rules (all non-personal and merchant-independent). They are installed into
+a profile database idempotently and never overwrite user rules or user-customised
+names:
+
+```python
+from fiskal.classification import seed_neutral_data
+
+seed_neutral_data(session)
+```
 
 ## Pre-commit
 

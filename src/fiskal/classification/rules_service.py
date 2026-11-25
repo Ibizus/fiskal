@@ -1,0 +1,324 @@
+"""Rule CRUD with automatic reclassification of pending transactions.
+
+Creating, updating or deleting a rule reclassifies only pending transactions;
+validated history never changes on its own. The bulk reapply over validated
+history is a separate, explicit function with a preview.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from uuid import UUID
+
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session
+
+from fiskal.classification.engine import (
+    reclassify_pending,
+    rule_to_condition,
+    sorted_active_rules,
+)
+from fiskal.db.models import Category, CostCenter, Rule, Transaction
+from fiskal.domain.enums import (
+    CategoryKind,
+    ClassificationOrigin,
+    RuleMatchMode,
+    RuleOrigin,
+    TransactionType,
+)
+from fiskal.domain.rule_matching import (
+    RuleCollision,
+    RuleCondition,
+    RuleValidationError,
+    find_collisions,
+    validate_condition,
+)
+
+
+class RuleNotFoundError(Exception):
+    """Raised when a rule or transaction does not exist."""
+
+
+@dataclass(frozen=True)
+class RuleProposal:
+    """A proposed rule, ready for the editor to adjust before saving."""
+
+    mode: RuleMatchMode
+    pattern: str
+    transaction_type: TransactionType
+    category_id: UUID
+    cost_center_id: UUID | None
+    priority: int
+
+
+def _coerce_mode(mode: RuleMatchMode | str) -> RuleMatchMode:
+    if isinstance(mode, RuleMatchMode):
+        return mode
+    try:
+        return RuleMatchMode(mode)
+    except ValueError as exc:
+        raise RuleValidationError(f"unknown rule mode: {mode}") from exc
+
+
+def _coerce_type(transaction_type: TransactionType | str) -> TransactionType:
+    if isinstance(transaction_type, TransactionType):
+        return transaction_type
+    try:
+        return TransactionType(transaction_type)
+    except ValueError as exc:
+        raise RuleValidationError(
+            f"unknown transaction type: {transaction_type}"
+        ) from exc
+
+
+def _required_category_kind(transaction_type: TransactionType) -> CategoryKind:
+    if transaction_type is TransactionType.INTERNAL_TRANSFER:
+        raise RuleValidationError(
+            "rules cannot assign the internal_transfer type; pairing owns it"
+        )
+    if transaction_type is TransactionType.INCOME:
+        return CategoryKind.INCOME
+    return CategoryKind.EXPENSE
+
+
+def _validate_rule_input(  # noqa: PLR0913
+    session: Session,
+    *,
+    mode: RuleMatchMode | str,
+    pattern: str,
+    transaction_type: TransactionType | str,
+    category_id: UUID,
+    cost_center_id: UUID | None,
+    amount_min_minor: int | None,
+    amount_max_minor: int | None,
+    day_of_month_min: int | None,
+    day_of_month_max: int | None,
+) -> tuple[RuleMatchMode, TransactionType, str]:
+    mode_enum = _coerce_mode(mode)
+    type_enum = _coerce_type(transaction_type)
+    required_kind = _required_category_kind(type_enum)
+    stripped_pattern = pattern.strip()
+    validate_condition(
+        RuleCondition(
+            mode=mode_enum,
+            pattern=stripped_pattern,
+            amount_min_minor=amount_min_minor,
+            amount_max_minor=amount_max_minor,
+            day_of_month_min=day_of_month_min,
+            day_of_month_max=day_of_month_max,
+        )
+    )
+
+    category = session.get(Category, category_id)
+    if category is None:
+        raise RuleValidationError("the rule category does not exist")
+    if not category.is_active:
+        raise RuleValidationError("the rule category is inactive")
+    if category.kind != required_kind.value:
+        raise RuleValidationError(
+            f"category kind {category.kind} is incompatible with type {type_enum.value}"
+        )
+
+    if cost_center_id is not None:
+        cost_center = session.get(CostCenter, cost_center_id)
+        if cost_center is None:
+            raise RuleValidationError("the rule cost center does not exist")
+        if not cost_center.is_active:
+            raise RuleValidationError("the rule cost center is inactive")
+
+    return mode_enum, type_enum, stripped_pattern
+
+
+def create_rule(  # noqa: PLR0913
+    session: Session,
+    *,
+    priority: int,
+    mode: RuleMatchMode | str,
+    pattern: str,
+    transaction_type: TransactionType | str,
+    category_id: UUID,
+    cost_center_id: UUID | None = None,
+    amount_min_minor: int | None = None,
+    amount_max_minor: int | None = None,
+    day_of_month_min: int | None = None,
+    day_of_month_max: int | None = None,
+    is_active: bool = True,
+) -> Rule:
+    """Create a user rule and reclassify pending transactions with it.
+
+    The rule is always a user rule; seed rules are installed by the seeding
+    function. Validation runs before anything is written.
+    """
+    mode_enum, type_enum, stripped_pattern = _validate_rule_input(
+        session,
+        mode=mode,
+        pattern=pattern,
+        transaction_type=transaction_type,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+        amount_min_minor=amount_min_minor,
+        amount_max_minor=amount_max_minor,
+        day_of_month_min=day_of_month_min,
+        day_of_month_max=day_of_month_max,
+    )
+    rule = Rule(
+        priority=priority,
+        mode=mode_enum.value,
+        pattern=stripped_pattern,
+        amount_min_minor=amount_min_minor,
+        amount_max_minor=amount_max_minor,
+        day_of_month_min=day_of_month_min,
+        day_of_month_max=day_of_month_max,
+        transaction_type=type_enum.value,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+        is_active=is_active,
+        origin=RuleOrigin.USER.value,
+    )
+    session.add(rule)
+    session.commit()
+    reclassify_pending(session)
+    return rule
+
+
+def update_rule(  # noqa: PLR0913
+    session: Session,
+    rule_id: UUID,
+    *,
+    priority: int,
+    mode: RuleMatchMode | str,
+    pattern: str,
+    transaction_type: TransactionType | str,
+    category_id: UUID,
+    cost_center_id: UUID | None,
+    amount_min_minor: int | None,
+    amount_max_minor: int | None,
+    day_of_month_min: int | None,
+    day_of_month_max: int | None,
+    is_active: bool,
+) -> Rule:
+    """Update a rule and reclassify only pending transactions.
+
+    Validated transactions never change as a side effect of a rule change.
+    """
+    rule = session.get(Rule, rule_id)
+    if rule is None:
+        raise RuleNotFoundError("rule not found")
+
+    mode_enum, type_enum, stripped_pattern = _validate_rule_input(
+        session,
+        mode=mode,
+        pattern=pattern,
+        transaction_type=transaction_type,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+        amount_min_minor=amount_min_minor,
+        amount_max_minor=amount_max_minor,
+        day_of_month_min=day_of_month_min,
+        day_of_month_max=day_of_month_max,
+    )
+    rule.priority = priority
+    rule.mode = mode_enum.value
+    rule.pattern = stripped_pattern
+    rule.amount_min_minor = amount_min_minor
+    rule.amount_max_minor = amount_max_minor
+    rule.day_of_month_min = day_of_month_min
+    rule.day_of_month_max = day_of_month_max
+    rule.transaction_type = type_enum.value
+    rule.category_id = category_id
+    rule.cost_center_id = cost_center_id
+    rule.is_active = is_active
+    session.commit()
+    reclassify_pending(session)
+    return rule
+
+
+def delete_rule(session: Session, rule_id: UUID) -> None:
+    """Delete a rule and reclassify only pending transactions.
+
+    Validated transactions keep their classification; their rule reference is
+    cleared because the rule no longer exists.
+    """
+    rule = session.get(Rule, rule_id)
+    if rule is None:
+        raise RuleNotFoundError("rule not found")
+
+    session.execute(
+        update(Transaction).where(Transaction.rule_id == rule_id).values(rule_id=None)
+    )
+    session.flush()
+    session.delete(rule)
+    session.commit()
+    reclassify_pending(session)
+
+
+def list_active_rules(session: Session) -> list[Rule]:
+    """Return active rules in precedence order."""
+    return sorted_active_rules(session)
+
+
+def find_rule_collisions(
+    session: Session,
+    candidate: RuleCondition,
+    *,
+    exclude_rule_id: UUID | None = None,
+) -> list[RuleCollision]:
+    """Report active rules whose condition overlaps ``candidate``."""
+    rules = list(
+        session.execute(select(Rule).where(Rule.is_active.is_(True))).scalars()
+    )
+    existing = [
+        (rule.id, rule_to_condition(rule))
+        for rule in rules
+        if rule.id != exclude_rule_id
+    ]
+    return find_collisions(candidate, existing)
+
+
+def propose_rule_from_correction(  # noqa: PLR0913
+    session: Session,
+    transaction_id: UUID,
+    *,
+    transaction_type: TransactionType | str,
+    category_id: UUID,
+    cost_center_id: UUID | None,
+) -> RuleProposal:
+    """Propose a ``contains`` rule from a manual correction.
+
+    The proposed pattern is the transaction's counterparty (or normalized
+    description when it has none) and is meant to be edited by the rule editor.
+    The proposal is placed one priority step above the rule that classified the
+    transaction, without modifying that rule; when the transaction was not
+    classified by a rule, it is placed above every existing rule.
+    """
+    txn = session.get(Transaction, transaction_id)
+    if txn is None:
+        raise RuleNotFoundError("transaction not found")
+
+    type_enum = _coerce_type(transaction_type)
+    pattern = (txn.counterparty or txn.normalized_description).strip()
+
+    if txn.rule_id is not None and txn.origin == ClassificationOrigin.RULE.value:
+        classifying_rule = session.get(Rule, txn.rule_id)
+        if classifying_rule is not None:
+            priority = classifying_rule.priority - 1
+        else:
+            priority = _top_priority(session)
+    else:
+        priority = _top_priority(session)
+
+    return RuleProposal(
+        mode=RuleMatchMode.CONTAINS,
+        pattern=pattern,
+        transaction_type=type_enum,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+        priority=priority,
+    )
+
+
+def _top_priority(session: Session) -> int:
+    minimum = session.execute(select(func.min(Rule.priority))).scalar()
+    if minimum is None:
+        return 0
+    return minimum - 1
