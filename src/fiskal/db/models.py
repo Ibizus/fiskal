@@ -71,6 +71,15 @@ def _income_source_values() -> tuple[str, ...]:
     return tuple(member.value for member in IncomeSource)
 
 
+class ProfileSetting(Base):
+    """A key-value setting that belongs to the profile (for example the language)."""
+
+    __tablename__ = "profile_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(String(500))
+
+
 class Person(Base):
     """A holder (person) who owns accounts and can be attributed income.
 

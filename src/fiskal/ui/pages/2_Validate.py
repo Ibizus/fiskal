@@ -9,6 +9,7 @@ from fiskal.classification import (
     ValidationError,
     confirm_pair,
     find_proposals_for_transaction_ids,
+    has_owner_cost_center,
     list_pending_transactions,
     reject_pair,
     suggest_from_history,
@@ -33,7 +34,9 @@ from fiskal.ui.labels import (
     person_label,
     transaction_type_label,
 )
+from fiskal.ui.language import apply_profile_language
 from fiskal.ui.messages import flash, show_flashes
+from fiskal.ui.navigation import show_settings_link
 from fiskal.ui.session import open_session
 
 _TYPE_OPTIONS = [
@@ -294,10 +297,14 @@ def _render_queue(
 
 def main() -> None:
     """Render the validate page."""
+    apply_profile_language()
     st.set_page_config(page_title=translate("nav.validate"), page_icon="✅")
     st.header(translate("nav.validate"))
     show_flashes()
     with open_session() as session:
+        if not has_owner_cost_center(session):
+            st.info(translate("validate.no_cost_center"))
+            show_settings_link()
         pending = list_pending_transactions(session)
         proposals = find_proposals_for_transaction_ids(
             session, [txn.id for txn in pending]

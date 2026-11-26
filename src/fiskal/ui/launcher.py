@@ -12,10 +12,12 @@ import streamlit as st
 
 from fiskal.i18n import translate
 from fiskal.ui.home import WORKING_PAGES, render_home
+from fiskal.ui.language import apply_profile_language, render_language_selector
 
 
 def main() -> None:
     """Configure the Streamlit application and run the page navigation."""
+    apply_profile_language()
     st.set_page_config(
         page_title=translate("app.title"),
         page_icon="🏦",
@@ -34,6 +36,7 @@ def main() -> None:
             for path, label_key, icon in WORKING_PAGES
         ),
     ]
+    render_language_selector()
     st.navigation(pages).run()
 
 

@@ -231,3 +231,35 @@ def test_seed_withdrawal_rule_does_not_match_positive_reversal(
     assert reversal.transaction_type == TransactionType.INCOME.value
     assert withdrawal.origin == ClassificationOrigin.RULE.value
     assert withdrawal.transaction_type == TransactionType.EXPENSE.value
+
+
+def test_seed_has_rental_expenses_category(session: Session) -> None:
+    """The neutral seed offers a variable rental expenses category."""
+    seed_neutral_data(session)
+
+    rental = (
+        session.query(Category).filter_by(name_key="category.rental_expenses").one()
+    )
+    assert rental.kind == "expense"
+    assert rental.nature == "variable"
+    assert translate("category.rental_expenses", "en") == "Rental expenses"
+    assert translate("category.rental_expenses", "es") == "Gastos de alquiler"
+
+
+def test_existing_profile_gains_rental_expenses_only(session: Session) -> None:
+    """Reseeding an older profile adds the new category and changes nothing else."""
+    seed_neutral_data(session)
+    session.query(Category).filter_by(name_key="category.rental_expenses").delete()
+    housing = session.query(Category).filter_by(name_key="category.housing").one()
+    housing.custom_name = "Home costs"
+    session.commit()
+
+    result = seed_neutral_data(session)
+
+    assert result.categories_created == 1
+    assert (
+        session.query(Category).filter_by(name_key="category.rental_expenses").count()
+        == 1
+    )
+    assert housing.custom_name == "Home costs"
+    assert result.rules_created == 0

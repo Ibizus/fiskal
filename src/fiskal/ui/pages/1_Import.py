@@ -22,6 +22,7 @@ from fiskal.services import (
     list_imports,
     list_persons,
 )
+from fiskal.ui.language import apply_profile_language
 from fiskal.ui.messages import flash, show_flashes
 from fiskal.ui.session import open_session
 
@@ -198,6 +199,7 @@ def _render_revert(session: Session) -> None:
 
 def main() -> None:
     """Render the import page."""
+    apply_profile_language()
     st.set_page_config(page_title=translate("nav.import"), page_icon="📥")
     st.header(translate("nav.import"))
     show_flashes()

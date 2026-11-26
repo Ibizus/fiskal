@@ -80,6 +80,7 @@ DEFAULT_CATEGORIES: Final[tuple[Category, ...]] = (
     Category("category.shopping", "expense", "variable"),
     Category("category.savings", "expense", "fixed"),
     Category("category.taxes", "expense", "variable"),
+    Category("category.rental_expenses", "expense", "variable"),
     Category("category.misc", "expense", "variable"),
 )
 

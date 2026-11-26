@@ -45,6 +45,26 @@ The working pages:
   automatically; there you can send a movement back to the Validate queue. To
   correct one, send it back and validate it again: it then stays manual. Only the 500 most
   recent matching movements are shown; the page says when that limit is hit.
+- **Settings** — configure the application from the interface, in three tabs.
+  *Cost centers*: create one (for example one per rental property), rename it,
+  deactivate and reactivate it. *Categories*: create and edit a category with
+  its kind (income or expense), fixed or variable, the income source for
+  income categories (work, benefit, rental, other) and the default proration
+  months; deactivate and reactivate it. Default items show a short description
+  of what they are for. *Rules*: list every rule (yours first, then the default
+  rules), edit one explicitly, deactivate and reactivate it. A rule change
+  reclassifies only pending movements; validated movements never change.
+  Nothing is ever deleted: an item used by movements or rules is deactivated,
+  stays visible on the movements that already use it, and cannot be chosen for
+  new ones. An item still assigned by an active rule cannot be deactivated
+  until the rule is changed. Renaming a default item keeps its translation key
+  and stores your name next to it; typing the original name again restores it.
+- **Language** — the sidebar selector switches the interface between English
+  and Spanish and remembers the choice in the profile database (never in the
+  repository). Without a saved choice the interface is in English.
+
+Until you create your own cost center, the Validate page shows a notice with a
+link to Settings. There is no onboarding wizard.
 
 The profile database is created on first run under the OS-specific data
 location described in [profile-directory.md](profile-directory.md) (on Linux,
@@ -163,7 +183,9 @@ holder.
 ### Neutral seed data
 
 The repository ships neutral default categories, cost centers and a tiny set of
-seed rules (all non-personal and merchant-independent). The single income
+seed rules (all non-personal and merchant-independent). The seed includes a
+variable *Rental expenses* expense category; profiles created earlier gain it
+the next time the application starts, without any other change. The single income
 category is split into work, benefit, rental and other income categories, each
 with its income source, so the neutral seed already distinguishes labor income,
 rental income and other inflows. Categories and cost centers are installed idempotently by key and never

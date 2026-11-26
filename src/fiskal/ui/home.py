@@ -14,6 +14,7 @@ WORKING_PAGES: tuple[tuple[str, str, str], ...] = (
     ("pages/1_Import.py", "nav.import", "📥"),
     ("pages/2_Validate.py", "nav.validate", "✅"),
     ("pages/3_Transactions.py", "nav.transactions", "🧾"),
+    ("pages/4_Settings.py", "nav.settings", "⚙️"),
 )
 
 
