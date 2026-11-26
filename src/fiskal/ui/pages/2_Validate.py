@@ -17,7 +17,8 @@ from fiskal.classification import (
 )
 from fiskal.db.models import Category, CostCenter, Person, Transaction
 from fiskal.domain.enums import TransactionType
-from fiskal.domain.transfer_pairing import PairingError
+from fiskal.domain.rule_matching import RuleValidationError
+from fiskal.domain.transfer_pairing import PairingError, PairProposal
 from fiskal.i18n import translate
 from fiskal.services import (
     list_accounts,
@@ -40,6 +41,7 @@ _TYPE_OPTIONS = [
     TransactionType.SAVINGS_INVESTMENT.value,
     TransactionType.REFUND.value,
 ]
+QUEUE_PAGE_SIZE = 25
 
 
 def _default_type_value(txn: Transaction) -> str:
@@ -55,15 +57,6 @@ def _type_index(txn: Transaction) -> int:
     return _TYPE_OPTIONS.index(value)
 
 
-def _index_of_id(ids: list[object], value: object | None) -> int:
-    if value is None:
-        return 0
-    try:
-        return ids.index(value)
-    except ValueError:
-        return 0
-
-
 def _none_first_index(ids: list[object], value: object | None) -> int:
     if value is None:
         return 0
@@ -71,6 +64,12 @@ def _none_first_index(ids: list[object], value: object | None) -> int:
         return ids.index(value) + 1
     except ValueError:
         return 0
+
+
+def _category_option_label(category: Category | None) -> str:
+    if category is None:
+        return translate("validate.choose_category")
+    return category_label(category)
 
 
 def _cost_center_option_label(cost_center: CostCenter | None) -> str:
@@ -131,9 +130,9 @@ def _render_transaction(
         )
         chosen_category = st.selectbox(
             translate("validate.category"),
-            categories,
-            index=_index_of_id(category_ids, category_id),
-            format_func=category_label,
+            [None, *categories],
+            index=_none_first_index(category_ids, category_id),
+            format_func=_category_option_label,
             key=f"validate_{txn.id}_category",
         )
         chosen_cost_center = st.selectbox(
@@ -155,13 +154,11 @@ def _render_transaction(
             translate("validate.create_rule"),
             key=f"validate_{txn.id}_create_rule",
         )
-        pattern = ""
-        if create_rule:
-            pattern = st.text_input(
-                translate("validate.rule_pattern"),
-                value=(txn.counterparty or txn.normalized_description).strip(),
-                key=f"validate_{txn.id}_pattern",
-            )
+        pattern = st.text_input(
+            translate("validate.rule_pattern"),
+            value=(txn.counterparty or txn.normalized_description).strip(),
+            key=f"validate_{txn.id}_pattern",
+        )
 
         confirm_col, save_col = st.columns(2)
         confirmed = confirm_col.form_submit_button(
@@ -176,19 +173,22 @@ def _render_transaction(
     if not (confirmed or saved):
         return
 
+    if chosen_category is None:
+        st.error(translate("validate.category_required"))
+        return
     cost_center_id = chosen_cost_center.id if chosen_cost_center is not None else None
     person_id = chosen_person.id if chosen_person is not None else None
-    if create_rule:
-        create_rule_from_correction(
-            session,
-            txn.id,
-            transaction_type=chosen_type,
-            category_id=chosen_category.id,
-            cost_center_id=cost_center_id,
-            person_id=person_id,
-            pattern=pattern or None,
-        )
     try:
+        if create_rule:
+            create_rule_from_correction(
+                session,
+                txn.id,
+                transaction_type=chosen_type,
+                category_id=chosen_category.id,
+                cost_center_id=cost_center_id,
+                person_id=person_id,
+                pattern=pattern or None,
+            )
         validate_transaction(
             session,
             txn.id,
@@ -197,16 +197,14 @@ def _render_transaction(
             cost_center_id=cost_center_id,
             person_id=person_id,
         )
-    except ValidationError as exc:
+    except (RuleValidationError, ValidationError) as exc:
         st.error(str(exc))
         return
     st.success(translate("validate.confirm"))
     st.rerun()
 
 
-def _render_pair_proposals(session: Session) -> None:
-    pending = list_pending_transactions(session)
-    proposals = find_proposals_for_transaction_ids(session, [txn.id for txn in pending])
+def _render_pair_proposals(session: Session, proposals: list[PairProposal]) -> None:
     if not proposals:
         st.caption(translate("validate.pair_none"))
         return
@@ -250,11 +248,24 @@ def _render_pair_proposals(session: Session) -> None:
             st.rerun()
 
 
-def _render_queue(session: Session) -> None:
-    pending = list_pending_transactions(session)
-    if not pending:
+def _render_queue(
+    session: Session, pending: list[Transaction], proposals: list[PairProposal]
+) -> None:
+    in_proposal = {proposal.source_id for proposal in proposals} | {
+        proposal.candidate_id for proposal in proposals
+    }
+    queue = [txn for txn in pending if txn.id not in in_proposal]
+    if not queue:
         st.info(translate("validate.empty"))
         return
+
+    st.subheader(translate("validate.queue_title"))
+    if len(queue) > QUEUE_PAGE_SIZE:
+        st.caption(
+            translate("validate.page_limit").format(
+                shown=QUEUE_PAGE_SIZE, total=len(queue)
+            )
+        )
 
     categories = list_categories(session)
     cost_centers = list_cost_centers(session)
@@ -263,7 +274,7 @@ def _render_queue(session: Session) -> None:
         account.id: account.name
         for account in list_accounts(session, active_only=False)
     }
-    for txn in pending:
+    for txn in queue[:QUEUE_PAGE_SIZE]:
         _render_transaction(
             session, txn, categories, cost_centers, persons, account_names
         )
@@ -274,8 +285,12 @@ def main() -> None:
     st.set_page_config(page_title=translate("nav.validate"), page_icon="✅")
     st.header(translate("nav.validate"))
     with open_session() as session:
-        _render_queue(session)
-        _render_pair_proposals(session)
+        pending = list_pending_transactions(session)
+        proposals = find_proposals_for_transaction_ids(
+            session, [txn.id for txn in pending]
+        )
+        _render_pair_proposals(session, proposals)
+        _render_queue(session, pending, proposals)
 
 
 if __name__ == "__main__":

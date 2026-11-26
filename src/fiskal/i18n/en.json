@@ -58,7 +58,7 @@
   "import.revert_button": "Revert import",
   "import.revert_success": "Import reverted.",
   "import.revert_error": "Could not revert the import:",
-  "import.no_accounts": "Create an account before importing a statement.",
+  "import.no_accounts": "Create an account above before importing a statement.",
   "import.account_hint_suffix": "ends in",
   "validate.queue_title": "Validation queue",
   "validate.empty": "Nothing to validate.",
@@ -93,5 +93,17 @@
   "transactions.all_statuses": "All statuses",
   "ui.welcome": "Welcome",
   "ui.loading": "Loading...",
-  "ui.no_data": "No data to display"
+  "ui.no_data": "No data to display",
+  "account.setup_title": "Accounts and holders",
+  "account.holder_name": "Holder name",
+  "account.add_holder": "Add holder",
+  "account.name": "Account name",
+  "account.hint": "Last four digits",
+  "account.currency": "Currency",
+  "account.holders": "Holders",
+  "account.create": "Create account",
+  "validate.choose_category": "Choose a category",
+  "validate.category_required": "Choose a category before confirming.",
+  "validate.page_limit": "Showing the first {shown} of {total} pending movements. Validate them to see the next ones.",
+  "transactions.limit_reached": "Showing only the {limit} most recent matching movements. Narrow the filters to see older ones."
 }

@@ -37,6 +37,7 @@ _STATUS_OPTIONS = [
     TransactionStatus.PENDING.value,
     TransactionStatus.VALIDATED.value,
 ]
+LIST_LIMIT = 500
 
 
 def _type_option_label(value: str | None) -> str:
@@ -85,10 +86,12 @@ def _render_table(session: Session) -> None:
         status=chosen_status,
         query=query or None,
     )
-    transactions = list_transactions(session, filters)
+    transactions = list_transactions(session, filters, limit=LIST_LIMIT)
     if not transactions:
         st.info(translate("transactions.empty"))
         return
+    if len(transactions) == LIST_LIMIT:
+        st.caption(translate("transactions.limit_reached").format(limit=LIST_LIMIT))
 
     account_names = {
         item.id: item.name for item in list_accounts(session, active_only=False)

@@ -1,8 +1,8 @@
-"""Cross-cutting read services for the Streamlit pages.
+"""Cross-cutting services for the Streamlit pages.
 
 These are small lookup queries shared by the Import, Validate and Transactions
-pages. All business rules live in the classification, importers and reports
-packages; these functions only fetch rows for rendering.
+pages, plus the minimal account and holder creation the Import page needs.
+Classification, import and report rules live in their own packages.
 """
 
 from __future__ import annotations
@@ -12,7 +12,21 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from fiskal.db.models import Account, Category, CostCenter, Import, Person
+from fiskal.db.models import (
+    Account,
+    AccountHolder,
+    Category,
+    CostCenter,
+    Import,
+    Person,
+)
+
+CURRENCY_CODE_LENGTH = 3
+ACCOUNT_HINT_LENGTH = 4
+
+
+class AccountCreationError(Exception):
+    """Raised when an account or holder cannot be created."""
 
 
 def list_accounts(session: Session, *, active_only: bool = True) -> list[Account]:
@@ -69,3 +83,56 @@ def list_imports(
             statement.order_by(Import.imported_at.desc()).limit(limit)
         ).scalars()
     )
+
+
+def create_person(session: Session, name: str) -> Person:
+    """Create a holder with the given name."""
+    stripped = name.strip()
+    if not stripped:
+        raise AccountCreationError("the holder name is required")
+    person = Person(name=stripped)
+    session.add(person)
+    session.commit()
+    return person
+
+
+def create_account(
+    session: Session,
+    *,
+    name: str,
+    currency_code: str,
+    account_hint: str | None = None,
+    holder_ids: list[UUID] | None = None,
+) -> Account:
+    """Create an account, optionally linked to existing holders.
+
+    ``account_hint`` is the last four digits of the account number, never the
+    full number. ``currency_code`` is a three-letter ISO code.
+    """
+    stripped_name = name.strip()
+    if not stripped_name:
+        raise AccountCreationError("the account name is required")
+    currency = currency_code.strip().upper()
+    if (
+        len(currency) != CURRENCY_CODE_LENGTH
+        or not currency.isascii()
+        or not currency.isalpha()
+    ):
+        raise AccountCreationError("the currency must be a three-letter code")
+    hint = (account_hint or "").strip() or None
+    if hint is not None and (
+        len(hint) != ACCOUNT_HINT_LENGTH or not hint.isascii() or not hint.isdigit()
+    ):
+        raise AccountCreationError("the account hint must be exactly four digits")
+    unique_holder_ids = list(dict.fromkeys(holder_ids or []))
+    for holder_id in unique_holder_ids:
+        if session.get(Person, holder_id) is None:
+            raise AccountCreationError("the holder does not exist")
+
+    account = Account(name=stripped_name, currency_code=currency, account_hint=hint)
+    session.add(account)
+    session.flush()
+    for holder_id in unique_holder_ids:
+        session.add(AccountHolder(account_id=account.id, person_id=holder_id))
+    session.commit()
+    return account

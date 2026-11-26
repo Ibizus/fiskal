@@ -14,7 +14,14 @@ from fiskal.importers import (
     revert_import,
 )
 from fiskal.importers.base import ImportSummary
-from fiskal.services import list_accounts, list_imports
+from fiskal.services import (
+    AccountCreationError,
+    create_account,
+    create_person,
+    list_accounts,
+    list_imports,
+    list_persons,
+)
 from fiskal.ui.session import open_session
 
 _ALLOWED_TYPES = ["xls", "html", "htm"]
@@ -63,8 +70,71 @@ def _render_summary(summary: ImportSummary) -> None:
             st.write(f"- {warning}")
 
 
+def _render_new_holder(session: Session) -> None:
+    with st.form("new_holder", clear_on_submit=True):
+        holder_name = st.text_input(
+            translate("account.holder_name"), key="new_holder_name"
+        )
+        submitted = st.form_submit_button(
+            translate("account.add_holder"), key="new_holder_submit"
+        )
+    if not submitted:
+        return
+    try:
+        create_person(session, holder_name)
+    except AccountCreationError as exc:
+        st.error(str(exc))
+        return
+    st.rerun()
+
+
+def _render_new_account(session: Session) -> None:
+    persons = list_persons(session)
+    with st.form("new_account", clear_on_submit=True):
+        name = st.text_input(translate("account.name"), key="new_account_name")
+        account_hint = st.text_input(
+            translate("account.hint"), max_chars=4, key="new_account_hint"
+        )
+        currency_code = st.text_input(
+            translate("account.currency"),
+            value="EUR",
+            max_chars=3,
+            key="new_account_currency",
+        )
+        holders = st.multiselect(
+            translate("account.holders"),
+            persons,
+            format_func=lambda person: person.name,
+            key="new_account_holders",
+        )
+        submitted = st.form_submit_button(
+            translate("account.create"), key="new_account_submit"
+        )
+    if not submitted:
+        return
+    try:
+        create_account(
+            session,
+            name=name,
+            currency_code=currency_code,
+            account_hint=account_hint or None,
+            holder_ids=[person.id for person in holders],
+        )
+    except AccountCreationError as exc:
+        st.error(str(exc))
+        return
+    st.rerun()
+
+
+def _render_account_setup(session: Session, *, expanded: bool) -> None:
+    with st.expander(translate("account.setup_title"), expanded=expanded):
+        _render_new_holder(session)
+        _render_new_account(session)
+
+
 def _render_import(session: Session) -> None:
     accounts = list_accounts(session)
+    _render_account_setup(session, expanded=not accounts)
     if not accounts:
         st.info(translate("import.no_accounts"))
         return

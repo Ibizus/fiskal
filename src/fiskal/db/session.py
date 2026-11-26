@@ -1,19 +1,23 @@
 """SQLAlchemy session helpers for the Streamlit entry point.
 
 The test suite builds its own in-memory sessions; these helpers wire the pages
-to the configured profile database and create the schema when it is missing.
-The migration path (Alembic) remains authoritative for evolving an existing
-database; ``create_all`` here only bootstraps a brand-new profile.
+to the configured profile database and bring its schema to the latest Alembic
+revision, so a profile created by the UI can keep being migrated later.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from typing import Final
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy.orm import Session, sessionmaker
 
-from fiskal.db.base import Base
 from fiskal.db.engine import get_default_data_dir, make_engine
+
+MIGRATIONS_DIR: Final[Path] = Path(__file__).resolve().parents[3] / "migrations"
 
 
 def default_database_url() -> str:
@@ -33,11 +37,19 @@ def database_url_from_env() -> str:
     ``FISKAL_DB_URL`` overrides the default and is what the UI smoke tests set
     to point at a temporary file.
     """
-    return os.environ.get("FISKAL_DB_URL", default_database_url())
+    return os.environ.get("FISKAL_DB_URL") or default_database_url()
+
+
+def upgrade_database(url: str) -> None:
+    """Apply every pending Alembic migration to the database at ``url``."""
+    config = Config()
+    config.set_main_option("script_location", str(MIGRATIONS_DIR))
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+    command.upgrade(config, "head")
 
 
 def build_session_factory(url: str | None = None) -> sessionmaker[Session]:
-    """Build a session factory and create the schema if it is missing."""
-    engine = make_engine(url or database_url_from_env())
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine)
+    """Build a session factory on a database migrated to the latest revision."""
+    resolved_url = url or database_url_from_env()
+    upgrade_database(resolved_url)
+    return sessionmaker(bind=make_engine(resolved_url))

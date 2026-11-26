@@ -58,7 +58,7 @@
   "import.revert_button": "Revertir importación",
   "import.revert_success": "Importación revertida.",
   "import.revert_error": "No se pudo revertir la importación:",
-  "import.no_accounts": "Crea una cuenta antes de importar un extracto.",
+  "import.no_accounts": "Crea una cuenta arriba antes de importar un extracto.",
   "import.account_hint_suffix": "termina en",
   "validate.queue_title": "Cola de validación",
   "validate.empty": "Nada que validar.",
@@ -93,5 +93,17 @@
   "transactions.all_statuses": "Todos los estados",
   "ui.welcome": "Bienvenido",
   "ui.loading": "Cargando...",
-  "ui.no_data": "No hay datos para mostrar"
+  "ui.no_data": "No hay datos para mostrar",
+  "account.setup_title": "Cuentas y titulares",
+  "account.holder_name": "Nombre del titular",
+  "account.add_holder": "Añadir titular",
+  "account.name": "Nombre de la cuenta",
+  "account.hint": "Últimos cuatro dígitos",
+  "account.currency": "Moneda",
+  "account.holders": "Titulares",
+  "account.create": "Crear cuenta",
+  "validate.choose_category": "Elige una categoría",
+  "validate.category_required": "Elige una categoría antes de confirmar.",
+  "validate.page_limit": "Se muestran los primeros {shown} de {total} movimientos pendientes. Valídalos para ver los siguientes.",
+  "transactions.limit_reached": "Solo se muestran los {limit} movimientos más recientes que coinciden. Ajusta los filtros para ver los anteriores."
 }
