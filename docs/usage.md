@@ -116,9 +116,9 @@ history always shows a preview first.
 
 The repository ships neutral default categories, cost centers and a tiny set of
 seed rules (all non-personal and merchant-independent). The single income
-category is split into work, benefit and rental income categories, each with
-its income source, so the neutral seed already distinguishes labor and rental
-income. Categories and cost centers are installed idempotently by key and never
+category is split into work, benefit, rental and other income categories, each
+with its income source, so the neutral seed already distinguishes labor income,
+rental income and other inflows. Categories and cost centers are installed idempotently by key and never
 overwrite user-customised names. Rule seeding is a first-run action: seed rules
 are installed only while the profile has no rules at all, so a deleted or
 edited seed rule never comes back on a later run. Restoring the default rules
@@ -152,8 +152,15 @@ from fiskal.reports.income import (
 Income is split into labor income (work plus benefits), rental income and other
 inflows (gifts and one-offs). Earned income is labor plus rental; other inflows
 count in the cash balance but not in earned income. All amounts are integer
-minor units. Splitting rental income by property share stays in the future tax
-module.
+minor units. Income without a category, or in a category without an income
+source, counts as other inflows. Splitting rental income by property share
+stays in the future tax module.
+
+An existing profile is not migrated: seeding adds the new work, benefit, rental
+and other income categories next to the old single income category, which
+keeps its name, its rules and its transactions. That old category has no income
+source, so its income keeps counting as other inflows until you move it or set
+its source yourself.
 
 ## Pre-commit
 

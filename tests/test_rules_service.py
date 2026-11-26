@@ -18,6 +18,7 @@ from fiskal.classification import (
     propose_rule_from_correction,
     update_rule,
 )
+from fiskal.db.models import Category
 from fiskal.domain.enums import (
     CategoryKind,
     ClassificationOrigin,
@@ -315,3 +316,75 @@ def test_create_and_update_rule_carry_person(session: Session) -> None:
 
     session.refresh(rule)
     assert rule.person_id == grace.id
+
+
+def _income_spec(category: Category, *, pattern: str, is_active: bool) -> RuleSpec:
+    return RuleSpec(
+        priority=1,
+        mode=RuleMatchMode.CONTAINS,
+        pattern=pattern,
+        transaction_type=TransactionType.INCOME,
+        category_id=category.id,
+        cost_center_id=None,
+        person_id=None,
+        amount_min_minor=None,
+        amount_max_minor=None,
+        day_of_month_min=None,
+        day_of_month_max=None,
+        is_active=is_active,
+    )
+
+
+@pytest.mark.parametrize("change", ["edit", "deactivate", "delete"])
+def test_rule_change_clears_rule_set_person(session: Session, change: str) -> None:
+    """A rule's person attribution does not survive once the rule stops applying.
+
+    A person the user set by hand on another pending row is kept.
+    """
+    account = _account(session)
+    income = _category(session, key="category.income", kind=CategoryKind.INCOME)
+    ada = _person(session, name="Ada")
+    grace = _person(session, name="Grace")
+    rule = _rule(
+        session,
+        pattern="salary",
+        transaction_type="income",
+        category=income,
+        person=ada,
+    )
+    by_rule = _transaction(
+        session,
+        account=account,
+        description="monthly salary",
+        counterparty=None,
+        amount_minor=2_000,
+    )
+    by_hand = _transaction(
+        session,
+        account=account,
+        description="birthday gift",
+        counterparty=None,
+        amount_minor=3_000,
+        person=grace,
+    )
+    classify_pending(session)
+    session.refresh(by_rule)
+    assert by_rule.person_id == ada.id
+
+    if change == "edit":
+        update_rule(
+            session, rule.id, _income_spec(income, pattern="rent", is_active=True)
+        )
+    elif change == "deactivate":
+        update_rule(
+            session, rule.id, _income_spec(income, pattern="salary", is_active=False)
+        )
+    else:
+        delete_rule(session, rule.id)
+
+    session.refresh(by_rule)
+    session.refresh(by_hand)
+    assert by_rule.rule_id is None
+    assert by_rule.category_id is None
+    assert by_rule.person_id is None
+    assert by_hand.person_id == grace.id

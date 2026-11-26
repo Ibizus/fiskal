@@ -112,11 +112,15 @@ def reclassify_pending(
     engine (rules or history) or that are still unclassified are reset. A
     pending row the user already classified by hand (``origin`` manual or
     template with a category set) is left untouched, as are validated rows.
+    A person attribution set by a rule is cleared with the rest of the rule's
+    classification; any other attribution is kept.
     A rule's hit is only counted when a row moves to a different rule.
     """
     targets = _load_reclassify_targets(session, transaction_ids)
     previous_rule_ids = {txn.id: txn.rule_id for txn in targets}
     for txn in targets:
+        if txn.origin == ClassificationOrigin.RULE.value:
+            txn.person_id = None
         txn.transaction_type = _default_type(txn.amount_minor).value
         txn.category_id = None
         txn.cost_center_id = None

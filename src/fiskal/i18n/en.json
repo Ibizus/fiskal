@@ -1,9 +1,11 @@
 {
   "app.title": "Fiskal",
   "app.tagline": "Local-first personal finance",
+  "category.income": "Income",
   "category.income.work": "Work income",
   "category.income.benefit": "Benefits",
   "category.income.rental": "Rental income",
+  "category.income.other": "Other income",
   "category.housing": "Housing",
   "category.utilities": "Utilities",
   "category.food": "Food",

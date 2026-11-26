@@ -69,6 +69,7 @@ DEFAULT_CATEGORIES: Final[tuple[Category, ...]] = (
     Category("category.income.work", "income", "variable", income_source="work"),
     Category("category.income.benefit", "income", "variable", income_source="benefit"),
     Category("category.income.rental", "income", "variable", income_source="rental"),
+    Category("category.income.other", "income", "variable", income_source="other"),
     Category("category.housing", "expense", "fixed"),
     Category("category.utilities", "expense", "variable"),
     Category("category.food", "expense", "variable"),

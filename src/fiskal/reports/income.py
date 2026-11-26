@@ -73,14 +73,17 @@ def _add(
 
 
 def _income_rows(session: Session) -> list[tuple[UUID | None, str | None, int]]:
-    """Return (person, income source, amount) for every income transaction."""
+    """Return (person, income source, amount) for every income transaction.
+
+    An income transaction without a category has no source and counts as other.
+    """
     rows = session.execute(
         select(
             Transaction.person_id,
             Category.income_source,
             Transaction.amount_minor,
         )
-        .join(Category, Transaction.category_id == Category.id)
+        .outerjoin(Category, Transaction.category_id == Category.id)
         .where(Transaction.transaction_type == TransactionType.INCOME.value)
     ).all()
     return [(person_id, source, amount) for person_id, source, amount in rows]

@@ -323,7 +323,7 @@ refunds, netted against their category.
 
 This is implemented as an optional income source attribute on income categories
 (work, benefit, rental, other). The neutral seed splits the single income
-category into work, benefit and rental categories. Splitting rental income by
+category into work, benefit, rental and other categories. Splitting rental income by
 property share stays in the future tax module.
 
 ## Screens

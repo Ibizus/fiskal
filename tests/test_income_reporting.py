@@ -144,6 +144,26 @@ def test_income_without_a_source_counts_as_other(session: Session) -> None:
     assert breakdown.earned_minor == 0
 
 
+def test_uncategorized_income_counts_as_other(session: Session) -> None:
+    """An unclassified pending inflow counts as other income everywhere."""
+    account = _account(session)
+    ada = _person(session, name="Ada")
+
+    unattributed_amount = 3_000
+    attributed_amount = 1_500
+    _transaction(session, account=account, amount_minor=unattributed_amount)
+    _transaction(session, account=account, person=ada, amount_minor=attributed_amount)
+
+    total = total_income(session)
+    assert total.other_minor == unattributed_amount + attributed_amount
+    assert total.earned_minor == 0
+    assert unattributed_income(session).other_minor == unattributed_amount
+    holders = income_by_holder(session)
+    assert [holder.person_name for holder in holders] == ["Ada"]
+    assert holders[0].breakdown.other_minor == attributed_amount
+    assert holders[0].breakdown.earned_minor == 0
+
+
 def test_refunds_and_transfers_are_not_income(session: Session) -> None:
     """Refunds, savings and internal transfers never count as income."""
     account = _account(session)

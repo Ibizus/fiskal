@@ -12,8 +12,15 @@ from fiskal.classification import (
     update_rule,
 )
 from fiskal.db.models import Category, Rule
-from fiskal.domain.enums import ClassificationOrigin, RuleOrigin, TransactionType
+from fiskal.domain.enums import (
+    CategoryKind,
+    ClassificationOrigin,
+    RuleOrigin,
+    TransactionType,
+)
 from fiskal.domain.seed import DEFAULT_CATEGORIES, DEFAULT_COST_CENTERS, DEFAULT_RULES
+from fiskal.i18n import translate
+from fiskal.reports.income import total_income
 from tests.support.factories import _account, _category, _rule, _transaction
 
 
@@ -127,7 +134,7 @@ def test_seed_income_rules_do_not_match_outgoing_payments(session: Session) -> N
 
 
 def test_seed_splits_income_categories_with_sources(session: Session) -> None:
-    """The neutral seed installs work, benefit and rental income categories."""
+    """The neutral seed installs work, benefit, rental and other income categories."""
     seed_neutral_data(session)
 
     income_categories = (
@@ -142,10 +149,50 @@ def test_seed_splits_income_categories_with_sources(session: Session) -> None:
         "category.income.work",
         "category.income.benefit",
         "category.income.rental",
+        "category.income.other",
     }
     assert by_key["category.income.work"].income_source == "work"
     assert by_key["category.income.benefit"].income_source == "benefit"
     assert by_key["category.income.rental"].income_source == "rental"
+    assert by_key["category.income.other"].income_source == "other"
+
+
+def test_seed_keeps_legacy_income_category_on_existing_profile(
+    session: Session,
+) -> None:
+    """Seeding an old profile adds the split categories and keeps the old one."""
+    legacy = _category(session, key="category.income", kind=CategoryKind.INCOME)
+    legacy_rule = _rule(
+        session,
+        pattern="salary",
+        transaction_type="income",
+        category=legacy,
+        origin=RuleOrigin.SEED,
+    )
+    account = _account(session)
+    amount = 2_000
+    _transaction(
+        session,
+        account=account,
+        category=legacy,
+        amount_minor=amount,
+        origin=ClassificationOrigin.RULE,
+    )
+
+    result = seed_neutral_data(session)
+
+    assert result.categories_created == len(DEFAULT_CATEGORIES)
+    assert result.rules_created == 0
+    session.refresh(legacy)
+    session.refresh(legacy_rule)
+    assert legacy.is_active
+    assert legacy.income_source is None
+    assert legacy_rule.category_id == legacy.id
+    assert translate("category.income", locale="en") == "Income"
+    assert translate("category.income", locale="es") == "Ingresos"
+    breakdown = total_income(session)
+    assert breakdown.other_minor == amount
+    assert breakdown.earned_minor == 0
 
 
 def test_seed_income_rules_point_at_work_income(session: Session) -> None:
