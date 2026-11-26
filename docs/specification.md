@@ -249,8 +249,8 @@ loaded, under 5% of a month's transactions reach the manual queue.
    confirmed pair restores both sides to unclassified/pending. Pairing cannot
    be confirmed or undone when either side is already validated, and validated
    transactions are never proposed. Full account numbers are never stored.
-3. Deterministic rules by priority: first match assigns type, cost center and
-   category. Conditions: "contains" on the normalized description/counterparty,
+3. Deterministic rules by priority: first match assigns type, cost center,
+   category and optionally a holder. Conditions: "contains" on the normalized description/counterparty,
    optional amount range, optional day-of-month range. Regular expressions are
    an optional advanced mode.
 4. History: if the same normalized counterparty was always validated one way,

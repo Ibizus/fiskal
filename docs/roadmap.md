@@ -34,7 +34,7 @@ These depend on the core but are not part of it.
   split each loan settlement into interest and capital.
 - **Rental and tax report**: owner shares per property, country-specific tax
   rules, and a report for the tax adviser. Core categories carry only name,
-  kind and fixed/variable; the mapping to tax-report lines lives in this
+  kind, fixed/variable and an optional income source; the mapping to tax-report lines lives in this
   module.
 
 ## Later items

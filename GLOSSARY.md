@@ -66,8 +66,8 @@ The effect of a transaction on the books. One of five kinds:
 _Avoid_: Direction, sign, class.
 
 **Rule**:
-A configurable condition that assigns type, cost center and category to a
-transaction automatically.
+A configurable condition that assigns type, cost center, category and
+optionally a holder to a transaction automatically.
 _Avoid_: Filter, automation.
 
 **Rule precedence**:

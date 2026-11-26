@@ -68,9 +68,7 @@ def run_migrations_online() -> None:
         )
         with context.begin_transaction():
             context.run_migrations()
-            violations = connection.exec_driver_sql(
-                "PRAGMA foreign_key_check"
-            ).all()
+            violations = connection.exec_driver_sql("PRAGMA foreign_key_check").all()
             if violations:
                 raise RuntimeError(
                     f"Migration left foreign-key violations: {violations}"
