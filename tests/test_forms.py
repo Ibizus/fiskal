@@ -13,6 +13,8 @@ from fiskal.ui.forms import (
 
 MINOR_TWELVE_THIRTY_FOUR = 1234
 MINOR_TWELVE_THIRTY = 1230
+LARGEST_STORABLE_AMOUNT = f"{MAX_STORED_INT // 100}.{MAX_STORED_INT % 100:02d}"
+SMALLEST_UNSTORABLE_AMOUNT = f"{MAX_STORED_INT // 100}.{MAX_STORED_INT % 100 + 1:02d}"
 
 
 def test_amount_parses_comma_and_point() -> None:
@@ -38,7 +40,9 @@ def test_amount_rejects_sub_cent_precision(text: str) -> None:
         parse_optional_amount_minor(text)
 
 
-@pytest.mark.parametrize("text", ["1e20", "-1e20", "1e999999", "92233720368547758.08"])
+@pytest.mark.parametrize(
+    "text", ["1e20", "-1e20", "1e999999", SMALLEST_UNSTORABLE_AMOUNT]
+)
 def test_amount_rejects_values_too_large_to_store(text: str) -> None:
     """Amounts beyond the stored integer range are refused."""
     with pytest.raises(FormValueError):
@@ -47,7 +51,7 @@ def test_amount_rejects_values_too_large_to_store(text: str) -> None:
 
 def test_amount_accepts_largest_storable_value() -> None:
     """The largest amount that fits the stored integer is still accepted."""
-    assert parse_optional_amount_minor("92233720368547758.07") == MAX_STORED_INT
+    assert parse_optional_amount_minor(LARGEST_STORABLE_AMOUNT) == MAX_STORED_INT
 
 
 def test_int_rejects_values_too_large_to_store() -> None:
