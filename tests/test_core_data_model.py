@@ -674,3 +674,58 @@ def test_migrated_database_rejects_invalid_transaction_values(
             **{field: value},
         )
     session.close()
+
+
+def test_upgrade_populated_profile_from_previous_revision(tmp_path: Path) -> None:
+    """A seeded profile with rules and transactions upgrades to head.
+
+    Rebuilding ``categories`` while rows reference it must not trip SQLite's
+    foreign-key enforcement and leave the profile half-migrated.
+    """
+    db_path = tmp_path / "existing.db"
+    _run_alembic(db_path, "upgrade", "dfcac1b70385")
+    account_id, category_id, rule_id, txn_id = (uuid4().hex for _ in range(4))
+    engine = make_engine(f"sqlite:///{db_path}")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO accounts (id, name, currency_code, is_active) "
+            "VALUES (?, 'Account', 'EUR', 1)",
+            (account_id,),
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO categories (id, name_key, kind, nature, is_active) "
+            "VALUES (?, 'category.income', 'income', 'variable', 1)",
+            (category_id,),
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO rules (id, priority, mode, pattern, transaction_type, "
+            "category_id, is_active, origin, hit_count) "
+            "VALUES (?, 1, 'contains', 'salary', 'income', ?, 1, 'seed', 0)",
+            (rule_id, category_id),
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO transactions (id, account_id, operation_date, "
+            "value_date, original_description, normalized_description, "
+            "amount_minor, balance_minor, currency_code, type, category_id, "
+            "rule_id, origin, status, is_manual, identity_key) VALUES (?, ?, "
+            "'2024-01-15', '2024-01-15', 'x', 'x', 10000, 0, 'EUR', 'income', "
+            "?, ?, 'rule', 'pending', 0, 'existing')",
+            (txn_id, account_id, category_id, rule_id),
+        )
+    engine.dispose()
+
+    _run_alembic(db_path, "upgrade", "head")
+
+    current = _run_alembic(db_path, "current")
+    assert "a3f8c2e6b1d4 (head)" in current.stdout
+    _run_alembic(db_path, "check")
+    with make_engine(f"sqlite:///{db_path}").connect() as connection:
+        rule_category = connection.exec_driver_sql(
+            "SELECT category_id FROM rules WHERE id = ?", (rule_id,)
+        ).scalar()
+        txn_rule = connection.exec_driver_sql(
+            "SELECT rule_id FROM transactions WHERE id = ?", (txn_id,)
+        ).scalar()
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+    assert rule_category == category_id
+    assert txn_rule == rule_id

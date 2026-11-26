@@ -54,6 +54,13 @@ def run_migrations_online() -> None:
     connectable = make_engine(url)
 
     with connectable.connect() as connection:
+        # Batch operations rebuild tables (copy, drop, rename). With foreign
+        # keys enforced, dropping a table that other rows reference fails, so
+        # enforcement is off during migrations and integrity is checked before
+        # committing. The pragma is a no-op inside a transaction, so it is set
+        # and committed first.
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -61,6 +68,13 @@ def run_migrations_online() -> None:
         )
         with context.begin_transaction():
             context.run_migrations()
+            violations = connection.exec_driver_sql(
+                "PRAGMA foreign_key_check"
+            ).all()
+            if violations:
+                raise RuntimeError(
+                    f"Migration left foreign-key violations: {violations}"
+                )
 
 
 if context.is_offline_mode():
