@@ -6,6 +6,9 @@ stores its own totals.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from uuid import UUID
+
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
@@ -42,3 +45,47 @@ def income_expense_total_minor(session: Session) -> int:
         )
     ).all()
     return sum(row[0] for row in rows)
+
+
+@dataclass(frozen=True)
+class TransactionFilter:
+    """Optional filters for listing transactions."""
+
+    account_id: UUID | None = None
+    transaction_type: str | None = None
+    status: str | None = None
+    query: str | None = None
+
+
+def list_transactions(
+    session: Session,
+    filters: TransactionFilter | None = None,
+    *,
+    limit: int = 500,
+) -> list[Transaction]:
+    """Return transactions matching ``filters``, newest first.
+
+    ``query`` is a case-insensitive substring match over the normalized
+    description and the counterparty.
+    """
+    filters = filters or TransactionFilter()
+    statement = select(Transaction)
+    if filters.account_id is not None:
+        statement = statement.where(Transaction.account_id == filters.account_id)
+    if filters.transaction_type is not None:
+        statement = statement.where(
+            Transaction.transaction_type == filters.transaction_type
+        )
+    if filters.status is not None:
+        statement = statement.where(Transaction.status == filters.status)
+    if filters.query:
+        needle = f"%{filters.query.strip().lower()}%"
+        statement = statement.where(
+            Transaction.normalized_description.ilike(needle)
+            | Transaction.counterparty.ilike(needle)
+        )
+    statement = statement.order_by(
+        Transaction.operation_date.desc(),
+        Transaction.id.desc(),
+    ).limit(limit)
+    return list(session.execute(statement).scalars())

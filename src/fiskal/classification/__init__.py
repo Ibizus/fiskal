@@ -27,6 +27,7 @@ from fiskal.classification.rules_service import (
     RuleProposal,
     RuleSpec,
     create_rule,
+    create_rule_from_correction,
     delete_rule,
     find_rule_collisions,
     list_active_rules,
@@ -34,6 +35,11 @@ from fiskal.classification.rules_service import (
     update_rule,
 )
 from fiskal.classification.seeding import SeedResult, seed_neutral_data
+from fiskal.classification.validation_service import (
+    ValidationError,
+    list_pending_transactions,
+    validate_transaction,
+)
 
 __all__ = [
     "ClassificationResult",
@@ -44,14 +50,17 @@ __all__ = [
     "RuleProposal",
     "RuleSpec",
     "SeedResult",
+    "ValidationError",
     "apply_reapply_validated",
     "classify_pending",
     "confirm_pair",
     "create_rule",
+    "create_rule_from_correction",
     "delete_rule",
     "find_proposals_for_transaction_ids",
     "find_rule_collisions",
     "list_active_rules",
+    "list_pending_transactions",
     "preview_reapply_validated",
     "propose_rule_from_correction",
     "reclassify_pending",
@@ -60,4 +69,5 @@ __all__ = [
     "suggest_from_history",
     "unpair",
     "update_rule",
+    "validate_transaction",
 ]

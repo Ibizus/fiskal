@@ -14,6 +14,24 @@ uv run streamlit run src/fiskal/ui/launcher.py
 
 Then open the URL printed by Streamlit in your browser.
 
+The launcher opens the welcome page and the sidebar lists the three working
+pages:
+
+- **Import** — pick an account (with its last-four-digit hint), upload an
+  Openbank statement, review the import summary, and revert a whole import.
+- **Validate** — work through the pending queue. Each transaction shows the
+  proposed type, category, cost center and optional holder; confirm it as
+  proposed or correct it. A correction can create a ``contains`` rule, the
+  history-based suggestion is preselected, and internal-transfer pair
+  proposals can be confirmed or rejected.
+- **Transactions** — list transactions with filters for account, type, status
+  and a text search over the description and counterparty.
+
+The profile database is created on first run under the OS-specific data
+location described in [profile-directory.md](profile-directory.md) (on Linux,
+``~/.local/share/Fiskal/default/fiskal.db``). Set the ``FISKAL_DB_URL``
+environment variable to a SQLAlchemy SQLite URL to use a different file.
+
 ## Run database migrations
 
 ```bash
@@ -137,8 +155,9 @@ seed_neutral_data(session)
 
 A holder is a lightweight person entity; an account has one or more holders.
 A transaction can optionally be attributed to a holder, with no default taken
-from the account's holders. This data layer ships without a user interface for
-now (the screens belong to a later slice), but the report helpers are ready:
+from the account's holders. The validation queue shows the optional
+"attributed to" field on every pending transaction; the report helpers are also
+ready:
 
 ```python
 from fiskal.reports.income import (

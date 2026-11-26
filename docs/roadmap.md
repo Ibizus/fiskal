@@ -20,8 +20,13 @@ keep transactions, and report by category and cost center.
    between the user's own accounts, so merged views do not double count
    transfers.
 6. Classification engine and neutral seed rules.
-7. Validation queue and guided history import mode.
-8. Transactions page, manual entries and recurring templates.
+7. Validation queue: confirm or correct the proposed category and cost
+   center, create a rule from a correction, show the history-based suggestion,
+   confirm or reject internal-transfer pair proposals, and attribute a holder
+   (person). Guided bulk history import mode (validating years of history in
+   blocks) remains to be built.
+8. Transactions page with filters (account, type, status and text search).
+   Manual entries and recurring templates remain to be built.
 9. Reports and proration (cash view vs real-cost view).
 10. Month close, recurring-charge detector and manual backup.
 11. User documentation and usability test.
