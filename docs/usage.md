@@ -152,12 +152,13 @@ from fiskal.reports.income import (
 )
 ```
 
-Income is split into labor income (work plus benefits), rental income and other
-inflows (gifts and one-offs). Earned income is labor plus rental; other inflows
-count in the cash balance but not in earned income. All amounts are integer
-minor units. Income without a category, or in a category without an income
-source, counts as other inflows. Splitting rental income by property share
-stays in the future tax module.
+Only work (including benefits) and rental are income. Income is split into
+labor income (work plus benefits), rental income and other inflows (gifts and
+one-offs). Earned income is labor plus rental; other inflows are not income and
+only help the cash balance, so they never count in earned income. All amounts
+are integer minor units. Income without a category, or in a category without an
+income source, counts as other inflows. Splitting rental income by property
+share stays in the future tax module.
 
 An existing profile is not migrated: seeding adds the new work, benefit, rental
 and other income categories next to the old single income category, which

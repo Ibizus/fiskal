@@ -103,7 +103,6 @@ def test_unattributed_and_total_income(session: Session) -> None:
     assert total.rental_minor == shared_rent
     assert total.other_minor == gift
     assert total.earned_minor == salary + shared_rent
-    assert total.total_minor == salary + shared_rent + gift
 
 
 def test_scalar_helpers_match_the_breakdown(session: Session) -> None:
@@ -164,6 +163,26 @@ def test_uncategorized_income_counts_as_other(session: Session) -> None:
     assert holders[0].breakdown.earned_minor == 0
 
 
+def test_other_and_uncategorized_inflows_are_not_earned(session: Session) -> None:
+    """Other and uncategorized inflows never count toward earned income."""
+    account = _account(session)
+    work = _income_category(session, key="category.work", income_source="work")
+    other = _income_category(session, key="category.other", income_source="other")
+
+    wages = 50_000
+    gift = 9_000
+    uncategorized = 1_000
+    _transaction(session, account=account, category=work, amount_minor=wages)
+    _transaction(session, account=account, category=other, amount_minor=gift)
+    _transaction(session, account=account, amount_minor=uncategorized)
+
+    breakdown = total_income(session)
+    assert breakdown.labor_minor == wages
+    assert breakdown.rental_minor == 0
+    assert breakdown.other_minor == gift + uncategorized
+    assert breakdown.earned_minor == wages
+
+
 def test_refunds_and_transfers_are_not_income(session: Session) -> None:
     """Refunds, savings and internal transfers never count as income."""
     account = _account(session)
@@ -191,6 +210,14 @@ def test_refunds_and_transfers_are_not_income(session: Session) -> None:
         transaction_type=TransactionType.INTERNAL_TRANSFER,
     )
 
-    assert total_income(session).total_minor == 0
+    total = total_income(session)
+    assert total.labor_minor == 0
+    assert total.rental_minor == 0
+    assert total.other_minor == 0
+    assert total.earned_minor == 0
     assert income_by_holder(session) == []
-    assert unattributed_income(session).total_minor == 0
+    unattributed = unattributed_income(session)
+    assert unattributed.labor_minor == 0
+    assert unattributed.rental_minor == 0
+    assert unattributed.other_minor == 0
+    assert unattributed.earned_minor == 0

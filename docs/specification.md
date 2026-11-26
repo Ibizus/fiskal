@@ -314,11 +314,12 @@ used only for income reporting at first. There is no automatic default from the
 account's holders, and an unattributed transaction is not personal (gifts,
 shared rental, refunds). A rule action can assign the person.
 
-Income is not everything that enters an account. Earned income is work plus
-benefits (salary, bonus, unemployment, paternity) plus rental. The headline
-figures are labor income (work plus benefits), rental income and total earned
-income. Gifts and one-off inflows are shown separately as other inflows: they
-count in the cash balance but not in earned income. Shared-dinner transfers are
+Only work (including benefits) and rental are income. Income is not everything
+that enters an account. Earned income is work plus benefits (salary, bonus,
+unemployment, paternity) plus rental; the headline figures are labor income
+(work plus benefits), rental income and total earned income. Gifts and one-off
+inflows are shown separately as other inflows and are not income: they count in
+the cash balance but never in earned income. Shared-dinner transfers are
 refunds, netted against their category.
 
 This is implemented as an optional income source attribute on income categories
@@ -357,8 +358,8 @@ All reports are queries over `transactions`; none stores its own totals.
 - Cost-center view: income, expenses and balance for a cost center, with cash
   and real-cost selectors.
 - Income view: income per holder, shared or unattributed income and the total;
-  labor income (work plus benefits), rental income, total earned income and
-  other inflows, all in integer minor units.
+  labor income (work plus benefits), rental income, total earned income, and
+  other inflows (which are not income), all in integer minor units.
 - Recurring charges with last increase.
 
 Deviation alerts and manual budget caps are deferred to a later version; they

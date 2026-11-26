@@ -33,11 +33,6 @@ class IncomeBreakdown:
         """Earned income: work plus benefits plus rental."""
         return self.labor_minor + self.rental_minor
 
-    @property
-    def total_minor(self) -> int:
-        """Everything counted as income: earned plus other inflows."""
-        return self.earned_minor + self.other_minor
-
 
 @dataclass(frozen=True)
 class HolderIncome:

@@ -49,8 +49,8 @@ _Avoid_: Tag, label.
 **Income source**:
 An optional attribute on an income category: work, benefit, rental or other.
 Work and benefit together are labor income; labor plus rental is earned income.
-Other marks gifts and one-off inflows, which count in the cash balance but not
-in earned income.
+Other marks gifts, refunds, deposit returns and uncategorized inflows, which
+are not income: they count in the cash balance but never in earned income.
 
 **Transaction type**:
 The effect of a transaction on the books. One of five kinds:
@@ -148,7 +148,8 @@ interval and amount.
 _Avoid_: Subscription, periodic expense.
 
 **Earned income**:
-Work plus benefits plus rental income.
+Work plus benefits plus rental income. Only work, benefits and rental are
+income.
 _Avoid_: Net income, take-home pay.
 
 **Labor income**:
@@ -159,8 +160,8 @@ _Avoid_: Salary.
 Income from renting out property, reported separately from labor income.
 
 **Other inflows**:
-Gifts and one-off inflows, shown separately from earned income. They count in
-the cash balance but not in earned income.
+Gifts, refunds, deposit returns and uncategorized inflows. They are not income:
+they only help the cash balance and never count in earned income.
 
 **Attributed / unattributed**:
 A transaction attributed to a holder is personal; one with no attribution is
