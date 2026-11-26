@@ -14,6 +14,33 @@ uv run streamlit run src/fiskal/ui/launcher.py
 
 Then open the URL printed by Streamlit in your browser.
 
+The launcher opens the welcome page and the sidebar lists the three working
+pages:
+
+- **Import** — create holders and accounts under **Accounts and holders**
+  (an account needs a name and a three-letter currency; the last four digits
+  of the account number and its holders are optional), then pick an account
+  (with its last-four-digit hint), upload an Openbank statement, review the
+  import summary, and revert a whole import.
+- **Validate** — internal-transfer pair proposals come first and can be
+  confirmed or rejected; both sides of an open proposal stay out of the queue
+  until it is decided. Then work through the pending queue, shown 25 movements
+  at a time. Each transaction shows the proposed type, category, cost center
+  and optional holder; confirm it as proposed or correct it. A category must be
+  chosen when none was proposed. A correction can create a ``contains`` rule
+  whose pattern you can edit, and the history-based suggestion is preselected.
+- **Transactions** — list transactions with filters for account, type, status
+  and a text search over the description and counterparty. Only the 500 most
+  recent matching movements are shown; the page says when that limit is hit.
+
+The profile database is created on first run under the OS-specific data
+location described in [profile-directory.md](profile-directory.md) (on Linux,
+``~/.local/share/Fiskal/default/fiskal.db``). Set the ``FISKAL_DB_URL``
+environment variable to a SQLAlchemy SQLite URL to use a different file. Every
+start applies pending Alembic migrations to the profile, so it is always at the
+latest schema revision. Run the UI from a repository checkout, because the
+migrations live in the repository's ``migrations/`` directory.
+
 ## Run database migrations
 
 ```bash
@@ -137,8 +164,9 @@ seed_neutral_data(session)
 
 A holder is a lightweight person entity; an account has one or more holders.
 A transaction can optionally be attributed to a holder, with no default taken
-from the account's holders. This data layer ships without a user interface for
-now (the screens belong to a later slice), but the report helpers are ready:
+from the account's holders. The validation queue shows the optional
+"attributed to" field on every pending transaction; the report helpers are also
+ready:
 
 ```python
 from fiskal.reports.income import (

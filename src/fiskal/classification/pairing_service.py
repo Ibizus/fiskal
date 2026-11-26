@@ -61,8 +61,9 @@ def _load_candidates(
 ) -> list[Transaction]:
     """Load transactions that may be the counterpart of any of ``sources``.
 
-    Only unpaired, pending rows outside the sources that could match on
-    amount, currency and value-date window are loaded.
+    Only unpaired, pending rows that could match on amount, currency and
+    value-date window are loaded. The sources themselves stay in the pool so
+    two pending sides of one transfer are proposed once.
     """
     window = timedelta(days=window_days)
     return list(
@@ -70,7 +71,6 @@ def _load_candidates(
             select(Transaction).where(
                 Transaction.paired_transaction_id.is_(None),
                 Transaction.status != TransactionStatus.VALIDATED.value,
-                Transaction.id.notin_({txn.id for txn in sources}),
                 Transaction.currency_code.in_({txn.currency_code for txn in sources}),
                 Transaction.amount_minor.in_({-txn.amount_minor for txn in sources}),
                 Transaction.value_date

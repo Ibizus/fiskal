@@ -292,3 +292,49 @@ def _top_priority(session: Session) -> int:
     if minimum is None:
         return 0
     return minimum - 1
+
+
+def create_rule_from_correction(
+    session: Session,
+    transaction_id: UUID,
+    *,
+    transaction_type: TransactionType | str,
+    category_id: UUID,
+    cost_center_id: UUID | None,
+    person_id: UUID | None,
+    pattern: str | None = None,
+) -> Rule:
+    """Create a user rule from a corrected transaction.
+
+    The proposed pattern is the transaction's counterparty (or its normalized
+    description when it has none) and can be overridden with ``pattern``. Call
+    this before validating the correction so the proposal can be placed one
+    step above the rule that originally classified the transaction; after
+    validation the transaction has no rule link, so the rule is placed above
+    every existing rule instead.
+    """
+    proposal = propose_rule_from_correction(
+        session,
+        transaction_id,
+        transaction_type=transaction_type,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+    )
+    stripped_pattern = (pattern or "").strip()
+    return create_rule(
+        session,
+        RuleSpec(
+            priority=proposal.priority,
+            mode=proposal.mode,
+            pattern=stripped_pattern or proposal.pattern,
+            transaction_type=proposal.transaction_type,
+            category_id=proposal.category_id,
+            cost_center_id=proposal.cost_center_id,
+            person_id=person_id,
+            amount_min_minor=None,
+            amount_max_minor=None,
+            day_of_month_min=None,
+            day_of_month_max=None,
+            is_active=True,
+        ),
+    )
