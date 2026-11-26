@@ -23,7 +23,14 @@ from fiskal.classification.engine import (
     sorted_active_rules,
 )
 from fiskal.classification.validation_service import validate_transaction
-from fiskal.db.models import Category, CostCenter, Person, Rule, Transaction
+from fiskal.db.models import (
+    Category,
+    CostCenter,
+    GuidedAction,
+    Person,
+    Rule,
+    Transaction,
+)
 from fiskal.domain.enums import (
     CategoryKind,
     ClassificationOrigin,
@@ -160,6 +167,19 @@ def create_rule(session: Session, spec: RuleSpec) -> Rule:
     The rule is always a user rule; seed rules are installed by the seeding
     function. Validation runs before anything is written.
     """
+    rule = add_rule(session, spec)
+    session.commit()
+    reclassify_pending(session)
+    return rule
+
+
+def add_rule(session: Session, spec: RuleSpec) -> Rule:
+    """Validate ``spec`` and stage a new user rule without committing.
+
+    For callers that must commit the rule together with other changes: they
+    commit, then reclassify pending transactions (``reclassify_pending``
+    commits). ``create_rule`` is the variant that does both.
+    """
     mode_enum, type_enum, stripped_pattern = _validate_rule_input(session, spec)
     rule = Rule(
         priority=spec.priority,
@@ -177,8 +197,7 @@ def create_rule(session: Session, spec: RuleSpec) -> Rule:
         origin=RuleOrigin.USER.value,
     )
     session.add(rule)
-    session.commit()
-    reclassify_pending(session)
+    session.flush()
     return rule
 
 
@@ -221,6 +240,9 @@ def delete_rule(session: Session, rule_id: UUID) -> None:
 
     session.execute(
         update(Transaction).where(Transaction.rule_id == rule_id).values(rule_id=None)
+    )
+    session.execute(
+        update(GuidedAction).where(GuidedAction.rule_id == rule_id).values(rule_id=None)
     )
     session.flush()
     session.delete(rule)
@@ -322,9 +344,9 @@ def propose_rule_from_correction(
         if classifying_rule is not None:
             priority = classifying_rule.priority - 1
         else:
-            priority = _top_priority(session)
+            priority = top_priority(session)
     else:
-        priority = _top_priority(session)
+        priority = top_priority(session)
 
     return RuleProposal(
         mode=RuleMatchMode.CONTAINS,
@@ -336,7 +358,8 @@ def propose_rule_from_correction(
     )
 
 
-def _top_priority(session: Session) -> int:
+def top_priority(session: Session) -> int:
+    """Return a priority that places a new rule above every existing rule."""
     minimum = session.execute(select(func.min(Rule.priority))).scalar()
     if minimum is None:
         return 0

@@ -23,8 +23,10 @@ keep transactions, and report by category and cost center.
 7. Validation queue: confirm or correct the proposed category and cost
    center, create a rule from a correction, show the history-based suggestion,
    confirm or reject internal-transfer pair proposals, and attribute a holder
-   (person). Guided bulk history import mode (validating years of history in
-   blocks) remains to be built.
+   (person). Guided bulk history import mode: the Validate page has a by-concept
+   view that groups pending movements by normalized description and validates
+   a group in one block, optionally creating a rule, with undo. Follow-up: a
+   full transaction editor.
    Settings page: cost centers, categories, rules and the interface language
    are configurable from the interface. Follow-ups: recurring templates
    management, detector thresholds, accounts editing.

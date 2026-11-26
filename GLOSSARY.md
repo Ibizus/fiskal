@@ -123,6 +123,12 @@ A transaction the user has confirmed or corrected, or that a rule the user
 created validated automatically (_validated by rule_).
 _Avoid_: Approved, committed.
 
+**Guided action**:
+One confirmation of a group of pending transactions that share a normalized
+description, validated together in the by-concept view of the Validate page.
+It records the rule it created, if any, so the whole block can be undone.
+_Avoid_: Batch, bulk edit.
+
 **Closed month**:
 A month that has been explicitly locked after review. Nothing can be imported
 or reclassified in it until it is reopened.

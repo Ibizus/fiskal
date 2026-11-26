@@ -39,6 +39,11 @@ The working pages:
   correction** to also create a ``contains`` rule whose pattern you can edit:
   it validates the other pending movements that match, and the page reports how
   many. The history-based suggestion is preselected.
+
+  The top of the page shows how many movements are still pending and the
+  percentage already classified. A **View** selector switches between the queue
+  above and the guided **By concept** view, meant for classifying years of
+  imported history in blocks (see below).
 - **Transactions** — list transactions with filters for account, type, status
   and a text search over the description and counterparty. The status filter
   has a **Validated by rule** option to review what your rules validated
@@ -147,6 +152,53 @@ type and pending status. Pairing never changes imported bank fields.
 
 A pair cannot be confirmed or undone when either side was validated by hand.
 A movement a rule validated automatically can still be paired.
+
+## Classifying a large history by concept
+
+After importing years of history, switch the Validate page to **By concept
+(guided)**. Pending movements are grouped by their normalized description, with
+income and expenses in separate groups even when the description matches.
+Descriptions that appear only once stay in the normal queue. Groups are
+paginated (10 per page) and ordered from the most movements to the fewest, so
+the biggest reduction of the queue comes first. The page draws one form per
+group, never one per movement, so it stays responsive with thousands of
+movements.
+
+For each group choose the type, category, cost center and, optionally, the
+person it is attributed to, then press **Classify the group**. The group says
+beforehand how many movements will be affected. Confirming:
+
+- validates every pending movement of the group by hand (they become manual
+  classifications, so they never change on their own and feed the history
+  suggestions), in one database transaction: if anything fails, nothing is
+  written;
+- by default also creates a rule of yours whose pattern is the normalized
+  description (editable before confirming). The rule is limited to the same side
+  of the books (expenses or income), validates other pending movements that
+  contain the pattern and classifies future imports. Uncheck **Also create a
+  rule for this description** to validate only the movements of the group;
+- applies the chosen person to every movement as a manual attribution, which
+  later reclassification never clears.
+
+Amounts are not used to split a group. When the amounts in a group differ widely
+(the largest is at least three times the smallest) the group shows a warning
+that recommends not creating a rule: validate only those movements, or review
+them one by one in the queue. The rule option starts unchecked for such groups.
+
+Movements that are halves of a pending internal-transfer proposal, and paired
+transfers, never appear in a group: confirm or reject the pair first.
+
+### Undoing a group
+
+Below the groups, **Recently validated groups** lists the latest groups you
+validated this way. **Return group to pending** sends the group's movements
+back to pending (they keep their classification as a preselection) and
+deactivates the rule the group created, if any, which also returns to pending
+the movements that rule had validated automatically. **Return only some
+movements** returns selected movements of the group and leaves the rule alone.
+A movement changed after the group was validated, for example by an explicit
+reapply of rules over validated history, is left as it is and reported. This is
+a safety net for a mistake in a large group, not a transaction editor.
 
 ## Classification
 

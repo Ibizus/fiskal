@@ -287,6 +287,41 @@ class Import(Base):
     continuity_ok: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class GuidedAction(Base):
+    """One confirmation of a group of transactions in the guided history mode.
+
+    The action records which concept (normalized description and direction)
+    was classified in one block and the rule created with it, if any, so the
+    whole block can be undone. The rows it validated point back to it through
+    ``Transaction.guided_action_id``. ``undone_at`` is set once the action has
+    been undone; the row is kept as an audit trail.
+    """
+
+    __tablename__ = "guided_actions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(UTC),
+    )
+    normalized_description: Mapped[str] = mapped_column(String(500))
+    direction: Mapped[str] = mapped_column(String(10))
+    row_count: Mapped[int] = mapped_column(Integer)
+    rule_id: Mapped[UUID | None] = mapped_column(ForeignKey("rules.id"))
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        CheckConstraint(
+            "direction IN ('income', 'expense')",
+            name="ck_guided_actions_direction",
+        ),
+        CheckConstraint(
+            "row_count >= 0",
+            name="ck_guided_actions_row_count_nonnegative",
+        ),
+    )
+
+
 class Transaction(Base):
     """A single movement of money.
 
@@ -317,6 +352,11 @@ class Transaction(Base):
     ``paired_transaction_id``. A transaction can belong to at most one pair;
     this is enforced by the application because a single self-referential
     nullable foreign key cannot express mutual exclusivity on its own.
+
+    ``guided_action_id`` links a transaction to the guided-mode group action
+    that validated it, which is what lets that action be undone. Code that
+    edits a validated transaction by hand must clear it, so a later undo never
+    reverts the edit.
     """
 
     __tablename__ = "transactions"
@@ -354,6 +394,9 @@ class Transaction(Base):
         ForeignKey("transactions.id"),
     )
     rule_id: Mapped[UUID | None] = mapped_column(ForeignKey("rules.id"))
+    guided_action_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("guided_actions.id"), index=True
+    )
 
     __table_args__ = (
         UniqueConstraint(

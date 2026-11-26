@@ -11,6 +11,8 @@ from fiskal.classification import (
     find_proposals_for_transaction_ids,
     has_owner_cost_center,
     list_pending_transactions,
+    pending_proposals,
+    proposal_leg_ids,
     reject_pair,
     suggest_from_history,
     validate_and_create_rule,
@@ -27,24 +29,20 @@ from fiskal.services import (
     list_cost_centers,
     list_persons,
 )
-from fiskal.ui.labels import (
-    category_label,
-    cost_center_label,
-    format_minor,
-    person_label,
-    transaction_type_label,
-)
+from fiskal.ui.labels import category_label, format_minor, transaction_type_label
 from fiskal.ui.language import apply_profile_language
 from fiskal.ui.messages import flash, show_flashes
 from fiskal.ui.navigation import show_settings_link
 from fiskal.ui.session import open_session
+from fiskal.ui.validate_common import (
+    TYPE_OPTIONS,
+    category_option_label,
+    cost_center_option_label,
+    none_first_index,
+    person_option_label,
+)
+from fiskal.ui.validate_guided import render_guided, render_progress
 
-_TYPE_OPTIONS = [
-    TransactionType.EXPENSE.value,
-    TransactionType.INCOME.value,
-    TransactionType.SAVINGS_INVESTMENT.value,
-    TransactionType.REFUND.value,
-]
 QUEUE_PAGE_SIZE = 25
 
 
@@ -55,36 +53,9 @@ def _default_type_value(txn: Transaction) -> str:
 
 
 def _type_index(txn: Transaction, value: str) -> int:
-    if value not in _TYPE_OPTIONS:
+    if value not in TYPE_OPTIONS:
         value = _default_type_value(txn)
-    return _TYPE_OPTIONS.index(value)
-
-
-def _none_first_index(ids: list[object], value: object | None) -> int:
-    if value is None:
-        return 0
-    try:
-        return ids.index(value) + 1
-    except ValueError:
-        return 0
-
-
-def _category_option_label(category: Category | None) -> str:
-    if category is None:
-        return translate("validate.choose_category")
-    return category_label(category)
-
-
-def _cost_center_option_label(cost_center: CostCenter | None) -> str:
-    if cost_center is None:
-        return translate("common.none")
-    return cost_center_label(cost_center)
-
-
-def _person_option_label(person: Person | None) -> str:
-    if person is None:
-        return translate("person.unattributed")
-    return person_label(person.name)
+    return TYPE_OPTIONS.index(value)
 
 
 def _render_transaction(
@@ -128,7 +99,7 @@ def _render_transaction(
 
         chosen_type = st.selectbox(
             translate("validate.type"),
-            _TYPE_OPTIONS,
+            TYPE_OPTIONS,
             index=_type_index(txn, type_value),
             format_func=transaction_type_label,
             key=f"validate_{txn.id}_type",
@@ -136,22 +107,22 @@ def _render_transaction(
         chosen_category = st.selectbox(
             translate("validate.category"),
             [None, *categories],
-            index=_none_first_index(category_ids, category_id),
-            format_func=_category_option_label,
+            index=none_first_index(category_ids, category_id),
+            format_func=category_option_label,
             key=f"validate_{txn.id}_category",
         )
         chosen_cost_center = st.selectbox(
             translate("validate.cost_center"),
             [None, *cost_centers],
-            index=_none_first_index(cost_center_ids, cost_center_id),
-            format_func=_cost_center_option_label,
+            index=none_first_index(cost_center_ids, cost_center_id),
+            format_func=cost_center_option_label,
             key=f"validate_{txn.id}_cost_center",
         )
         chosen_person = st.selectbox(
             translate("validate.person"),
             [None, *persons],
-            index=_none_first_index(person_ids, txn.person_id),
-            format_func=_person_option_label,
+            index=none_first_index(person_ids, txn.person_id),
+            format_func=person_option_label,
             key=f"validate_{txn.id}_person",
         )
 
@@ -295,6 +266,28 @@ def _render_queue(
         )
 
 
+VIEW_QUEUE = "queue"
+VIEW_BY_CONCEPT = "by_concept"
+_VIEW_KEY = "validate_view"
+
+
+def _view_label(view: str) -> str:
+    return translate(f"validate.view.{view}")
+
+
+def _render_queue_view(session: Session) -> None:
+    pending = list_pending_transactions(session)
+    proposals = find_proposals_for_transaction_ids(session, [txn.id for txn in pending])
+    _render_pair_proposals(session, proposals)
+    _render_queue(session, pending, proposals)
+
+
+def _render_guided_view(session: Session) -> None:
+    proposals = pending_proposals(session)
+    _render_pair_proposals(session, proposals)
+    render_guided(session, proposal_leg_ids(proposals))
+
+
 def main() -> None:
     """Render the validate page."""
     apply_profile_language()
@@ -305,12 +298,18 @@ def main() -> None:
         if not has_owner_cost_center(session):
             st.info(translate("validate.no_cost_center"))
             show_settings_link()
-        pending = list_pending_transactions(session)
-        proposals = find_proposals_for_transaction_ids(
-            session, [txn.id for txn in pending]
+        render_progress(session)
+        view = st.radio(
+            translate("validate.view"),
+            [VIEW_QUEUE, VIEW_BY_CONCEPT],
+            format_func=_view_label,
+            horizontal=True,
+            key=_VIEW_KEY,
         )
-        _render_pair_proposals(session, proposals)
-        _render_queue(session, pending, proposals)
+        if view == VIEW_BY_CONCEPT:
+            _render_guided_view(session)
+        else:
+            _render_queue_view(session)
 
 
 if __name__ == "__main__":

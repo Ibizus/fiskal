@@ -13,9 +13,10 @@ it back to the queue with ``return_to_queue``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from fiskal.db.models import Category, CostCenter, Person, Transaction
@@ -108,33 +109,22 @@ def return_to_queue(session: Session, transaction_id: UUID) -> Transaction:
     return txn
 
 
-def validate_transaction(
+def check_classification(
     session: Session,
-    transaction_id: UUID,
     *,
     transaction_type: TransactionType | str,
     category_id: UUID,
     cost_center_id: UUID | None,
     person_id: UUID | None,
-) -> Transaction:
-    """Confirm or correct one pending transaction and mark it validated.
+) -> TransactionType:
+    """Check a classification against the catalogs and return its type.
 
-    The classification becomes manual so later reclassification never changes
-    it, and the row starts feeding validated-history suggestions. Setting a
-    person by hand also flips the origin to manual, so reclassification cannot
-    clear the person as rule-owned. A row that a user rule validated
-    automatically can be corrected the same way and then sticks as manual.
+    The category must exist, be active and match the type's kind; the cost
+    center must exist and be active; the person must exist. This is the single
+    set of checks behind every manual validation, one row or a whole block.
     """
     type_enum = _coerce_type(transaction_type)
     required_kind = _required_category_kind(type_enum)
-
-    txn = session.get(Transaction, transaction_id)
-    if txn is None:
-        raise ValidationError("transaction not found")
-    if txn.status == TransactionStatus.VALIDATED.value and not _is_rule_validated(txn):
-        raise ValidationError("transaction is already validated")
-    if txn.paired_transaction_id is not None:
-        raise ValidationError("cannot validate an internal transfer")
 
     category = session.get(Category, category_id)
     if category is None:
@@ -157,6 +147,40 @@ def validate_transaction(
         person = session.get(Person, person_id)
         if person is None:
             raise ValidationError("the person does not exist")
+    return type_enum
+
+
+def validate_transaction(
+    session: Session,
+    transaction_id: UUID,
+    *,
+    transaction_type: TransactionType | str,
+    category_id: UUID,
+    cost_center_id: UUID | None,
+    person_id: UUID | None,
+) -> Transaction:
+    """Confirm or correct one pending transaction and mark it validated.
+
+    The classification becomes manual so later reclassification never changes
+    it, and the row starts feeding validated-history suggestions. Setting a
+    person by hand also flips the origin to manual, so reclassification cannot
+    clear the person as rule-owned. A row that a user rule validated
+    automatically can be corrected the same way and then sticks as manual.
+    """
+    type_enum = check_classification(
+        session,
+        transaction_type=transaction_type,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+        person_id=person_id,
+    )
+    txn = session.get(Transaction, transaction_id)
+    if txn is None:
+        raise ValidationError("transaction not found")
+    if txn.status == TransactionStatus.VALIDATED.value and not _is_rule_validated(txn):
+        raise ValidationError("transaction is already validated")
+    if txn.paired_transaction_id is not None:
+        raise ValidationError("cannot validate an internal transfer")
 
     txn.transaction_type = type_enum.value
     txn.category_id = category_id
@@ -165,6 +189,64 @@ def validate_transaction(
     txn.origin = ClassificationOrigin.MANUAL.value
     txn.rule_id = None
     txn.validated_by_rule = False
+    txn.guided_action_id = None
     txn.status = TransactionStatus.VALIDATED.value
     session.commit()
     return txn
+
+
+_BULK_CHUNK_SIZE = 500
+
+
+def validate_pending_in_bulk(
+    session: Session,
+    transaction_ids: Sequence[UUID],
+    *,
+    transaction_type: TransactionType | str,
+    category_id: UUID,
+    cost_center_id: UUID | None,
+    person_id: UUID | None,
+    guided_action_id: UUID | None = None,
+) -> int:
+    """Validate many pending transactions by hand with one classification.
+
+    The checks and the resulting fields are the ones ``validate_transaction``
+    applies: the classification becomes manual, so reclassification never
+    changes it and a person set here survives. Only rows that are still
+    pending and unpaired are touched, and the changes are flushed but not
+    committed, so the caller decides the transaction boundary. Returns how many
+    rows were validated.
+    """
+    type_enum = check_classification(
+        session,
+        transaction_type=transaction_type,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+        person_id=person_id,
+    )
+    validated = 0
+    for start in range(0, len(transaction_ids), _BULK_CHUNK_SIZE):
+        chunk = transaction_ids[start : start + _BULK_CHUNK_SIZE]
+        result = session.execute(
+            update(Transaction)
+            .where(
+                Transaction.id.in_(chunk),
+                Transaction.status == TransactionStatus.PENDING.value,
+                Transaction.paired_transaction_id.is_(None),
+            )
+            .values(
+                transaction_type=type_enum.value,
+                category_id=category_id,
+                cost_center_id=cost_center_id,
+                person_id=person_id,
+                origin=ClassificationOrigin.MANUAL.value,
+                rule_id=None,
+                validated_by_rule=False,
+                guided_action_id=guided_action_id,
+                status=TransactionStatus.VALIDATED.value,
+            )
+            .execution_options(synchronize_session="fetch")
+        )
+        validated += int(result.rowcount)  # type: ignore[attr-defined]
+    session.flush()
+    return validated
