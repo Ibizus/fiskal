@@ -92,13 +92,13 @@ Right after an import, and after internal-transfer proposals, Fiskal runs a
 classification cascade over the new, pending movements:
 
 1. **Rules** — an active rule whose condition matches assigns the type, cost
-   center and category. Rules are data in the database, never code. A rule has
-   a numeric priority, a case-insensitive ``contains`` condition on the
-   normalized description and counterparty (or an optional regex advanced
-   mode), an optional amount range and an optional day-of-month range. User
-   rules always beat seed rules; inside each group the lower priority wins
-   first, ties break on the rule id. The import summary reports how many
-   movements were classified by rule.
+   center, category and optionally a holder (person). Rules are data in the
+   database, never code. A rule has a numeric priority, a case-insensitive
+   ``contains`` condition on the normalized description and counterparty (or an
+   optional regex advanced mode), an optional amount range and an optional
+   day-of-month range. User rules always beat seed rules; inside each group the
+   lower priority wins first, ties break on the rule id. The import summary
+   reports how many movements were classified by rule.
 2. **History** — when every validated transaction with the same normalized
    counterparty was classified the same way, that classification is applied.
    When history disagrees, the movement stays unclassified; nothing is stored,
@@ -110,23 +110,61 @@ classification cascade over the new, pending movements:
 Rules and categories are never validated by the engine: every movement remains
 ``pending`` until the user confirms or corrects it in the validation queue.
 Rule changes reclassify only pending movements; a bulk reapply over validated
-history always shows a preview first.
+history always shows a preview first. On a pending movement classified by a
+rule, the holder belongs to the engine and is cleared when it is reclassified;
+a manual edit switches the movement to manual, and manual movements keep their
+holder.
 
 ### Neutral seed data
 
 The repository ships neutral default categories, cost centers and a tiny set of
-seed rules (all non-personal and merchant-independent). Categories and cost
-centers are installed idempotently by key and never overwrite user-customised
-names. Rule seeding is a first-run action: seed rules are installed only while
-the profile has no rules at all, so a deleted or edited seed rule never comes
-back on a later run. Restoring the default rules would be a separate, explicit
-feature:
+seed rules (all non-personal and merchant-independent). The single income
+category is split into work, benefit, rental and other income categories, each
+with its income source, so the neutral seed already distinguishes labor income,
+rental income and other inflows. Categories and cost centers are installed idempotently by key and never
+overwrite user-customised names. Rule seeding is a first-run action: seed rules
+are installed only while the profile has no rules at all, so a deleted or
+edited seed rule never comes back on a later run. Restoring the default rules
+would be a separate, explicit feature:
 
 ```python
 from fiskal.classification import seed_neutral_data
 
 seed_neutral_data(session)
 ```
+
+## Holders and income
+
+A holder is a lightweight person entity; an account has one or more holders.
+A transaction can optionally be attributed to a holder, with no default taken
+from the account's holders. This data layer ships without a user interface for
+now (the screens belong to a later slice), but the report helpers are ready:
+
+```python
+from fiskal.reports.income import (
+    earned_income_minor,
+    income_by_holder,
+    labor_income_minor,
+    other_inflows_minor,
+    rental_income_minor,
+    total_income,
+    unattributed_income,
+)
+```
+
+Only work (including benefits) and rental are income. Income is split into
+labor income (work plus benefits), rental income and other inflows (gifts and
+one-offs). Earned income is labor plus rental; other inflows are not income and
+only help the cash balance, so they never count in earned income. All amounts
+are integer minor units. Income without a category, or in a category without an
+income source, counts as other inflows. Splitting rental income by property
+share stays in the future tax module.
+
+An existing profile is not migrated: seeding adds the new work, benefit, rental
+and other income categories next to the old single income category, which
+keeps its name, its rules and its transactions. That old category has no income
+source, so its income keeps counting as other inflows until you move it or set
+its source yourself.
 
 ## Pre-commit
 

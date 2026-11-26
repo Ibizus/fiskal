@@ -61,3 +61,16 @@ class RuleOrigin(StrEnum):
 
     SEED = "seed"
     USER = "user"
+
+
+class IncomeSource(StrEnum):
+    """The source of an income category for reporting.
+
+    Earned income is work plus benefits plus rental. ``other`` marks gifts and
+    one-off inflows, which count in the cash balance but not in earned income.
+    """
+
+    WORK = "work"
+    BENEFIT = "benefit"
+    RENTAL = "rental"
+    OTHER = "other"

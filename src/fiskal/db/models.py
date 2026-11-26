@@ -30,6 +30,7 @@ from fiskal.domain.enums import (
     CategoryKind,
     CategoryNature,
     ClassificationOrigin,
+    IncomeSource,
     RuleMatchMode,
     RuleOrigin,
     TransactionStatus,
@@ -65,6 +66,23 @@ def _rule_origin_values() -> tuple[str, ...]:
     return tuple(member.value for member in RuleOrigin)
 
 
+def _income_source_values() -> tuple[str, ...]:
+    return tuple(member.value for member in IncomeSource)
+
+
+class Person(Base):
+    """A holder (person) who owns accounts and can be attributed income.
+
+    Persons are lightweight: a name is the only required field. They are never
+    seeded; each profile creates its own holders.
+    """
+
+    __tablename__ = "persons"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    name: Mapped[str] = mapped_column(String(255))
+
+
 class Account(Base):
     """A bank or cash account where money moves."""
 
@@ -85,6 +103,21 @@ class Account(Base):
             name="ck_accounts_account_hint_length",
         ),
     )
+
+
+class AccountHolder(Base):
+    """The many-to-many link between an account and its holders.
+
+    An account has one or more holders; the same person may hold several
+    accounts. Both columns form the primary key, so a link is never duplicated.
+    """
+
+    __tablename__ = "account_holders"
+
+    account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("accounts.id"), primary_key=True
+    )
+    person_id: Mapped[UUID] = mapped_column(ForeignKey("persons.id"), primary_key=True)
 
 
 class CostCenter(Base):
@@ -117,6 +150,7 @@ class Category(Base):
     custom_name: Mapped[str | None] = mapped_column(String(255))
     kind: Mapped[str] = mapped_column(String(10))
     nature: Mapped[str] = mapped_column(String(10))
+    income_source: Mapped[str | None] = mapped_column(String(10))
     default_proration_months: Mapped[int | None] = mapped_column(Integer)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -132,6 +166,10 @@ class Category(Base):
         CheckConstraint(
             f"nature IN {_category_nature_values()}",
             name="ck_categories_nature",
+        ),
+        CheckConstraint(
+            f"income_source IN {_income_source_values()}",
+            name="ck_categories_income_source",
         ),
         CheckConstraint(
             "default_proration_months IS NULL OR default_proration_months > 0",
@@ -153,7 +191,8 @@ class Rule(Base):
     ``cost_center_id`` is optional: a rule that leaves it unset lets the
     account's default cost center fill it as the last classification layer.
     ``category_id`` is required because a rule always classifies a transaction,
-    and ``origin`` is only meaningful once a category is set.
+    and ``origin`` is only meaningful once a category is set. ``person_id``
+    optionally attributes the transaction to a holder; it is never a default.
     """
 
     __tablename__ = "rules"
@@ -171,6 +210,7 @@ class Rule(Base):
         ForeignKey("cost_centers.id"),
     )
     category_id: Mapped[UUID] = mapped_column(ForeignKey("categories.id"))
+    person_id: Mapped[UUID | None] = mapped_column(ForeignKey("persons.id"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     origin: Mapped[str] = mapped_column(String(10))
     hit_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -253,6 +293,10 @@ class Transaction(Base):
     holds (imports store a placeholder). Classification code must key off
     ``category_id``, never off ``origin``.
 
+    ``person_id`` optionally attributes the transaction to a holder. It is
+    only used for income reporting at first, has no default from the account's
+    holders, and a ``NULL`` value means the transaction is not personal.
+
     Two transactions that form an internal transfer are linked through
     ``paired_transaction_id``. A transaction can belong to at most one pair;
     this is enforced by the application because a single self-referential
@@ -277,6 +321,7 @@ class Transaction(Base):
         ForeignKey("cost_centers.id"),
     )
     category_id: Mapped[UUID | None] = mapped_column(ForeignKey("categories.id"))
+    person_id: Mapped[UUID | None] = mapped_column(ForeignKey("persons.id"))
     origin: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(
         String(20), default=TransactionStatus.PENDING.value

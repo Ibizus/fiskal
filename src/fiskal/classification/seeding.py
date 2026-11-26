@@ -61,6 +61,7 @@ def _seed_categories(session: Session) -> int:
                     name_key=seed_category.key,
                     kind=seed_category.kind,
                     nature=seed_category.nature,
+                    income_source=seed_category.income_source,
                     is_active=True,
                 )
             )
