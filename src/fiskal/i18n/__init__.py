@@ -14,6 +14,24 @@ CATALOG_DIR: Final[Path] = Path(__file__).parent
 SUPPORTED_LOCALES: Final[frozenset[str]] = frozenset({"en", "es"})
 DEFAULT_LOCALE: Final[str] = "en"
 
+_active: dict[str, str] = {"locale": DEFAULT_LOCALE}
+
+
+def set_active_locale(locale: str) -> None:
+    """Set the locale ``translate`` uses when no locale is passed.
+
+    Raises:
+        ValueError: If the locale is not supported.
+    """
+    if locale not in SUPPORTED_LOCALES:
+        raise ValueError(f"Unsupported locale: {locale}")
+    _active["locale"] = locale
+
+
+def get_active_locale() -> str:
+    """Return the locale ``translate`` uses when no locale is passed."""
+    return _active["locale"]
+
 
 def _load_catalog(locale: str) -> dict[str, str]:
     """Load the translation catalog for ``locale``.
@@ -50,17 +68,17 @@ def get_catalog(locale: str = DEFAULT_LOCALE) -> dict[str, str]:
     return _load_catalog(locale)
 
 
-def translate(key: str, locale: str = DEFAULT_LOCALE) -> str:
+def translate(key: str, locale: str | None = None) -> str:
     """Return the display text for ``key`` in ``locale``.
 
     Args:
         key: Neutral English message key.
-        locale: Two-letter locale code.
+        locale: Two-letter locale code; the active locale when omitted.
 
     Returns:
         Translated text, or ``key`` wrapped in brackets if missing.
     """
-    catalog = _load_catalog(locale)
+    catalog = _load_catalog(locale or _active["locale"])
     return catalog.get(key, f"[{key}]")
 
 

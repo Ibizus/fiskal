@@ -31,6 +31,7 @@ from fiskal.classification.engine.reapply import (
 from fiskal.classification.engine.rule_cascade import (
     apply_rules,
     rule_to_condition,
+    sort_rules,
     sorted_active_rules,
 )
 from fiskal.classification.pairing_service import find_proposals_for_transaction_ids
@@ -199,6 +200,7 @@ __all__ = [
     "preview_reapply_validated",
     "reclassify_pending",
     "rule_to_condition",
+    "sort_rules",
     "sorted_active_rules",
     "suggest_from_history",
 ]

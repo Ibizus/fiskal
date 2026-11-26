@@ -366,7 +366,16 @@ Six Streamlit pages in the core:
    versus real-cost selector; default view merges all accounts, with a filter
    for one or several accounts.
 6. **Settings**: rules, cost centers, categories, recurring templates,
-   accounts, language.
+   accounts, language. Implemented so far: cost centers (create, rename,
+   deactivate, reactivate), categories (kind, fixed or variable, income
+   source, default proration months), rules (list, edit, deactivate,
+   reactivate; changes reclassify only pending movements) and the interface
+   language. Language is stored in a `profile_settings` key-value table of the
+   profile database and applied to every page; it defaults to English when
+   unset. User-created items store a plain `custom_name`; default items keep a
+   translation key and an optional `custom_name` that wins when present.
+   Items are never deleted, only deactivated. Recurring templates, accounts
+   editing and detector thresholds remain to be built.
 
 ## Reports
 

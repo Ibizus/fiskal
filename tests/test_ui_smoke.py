@@ -15,10 +15,27 @@ import pytest
 from sqlalchemy import select
 from streamlit.testing.v1 import AppTest
 
-from fiskal.classification import RuleSpec, create_rule, seed_neutral_data
-from fiskal.db.models import Account, AccountHolder, Import, Rule, Transaction
+from fiskal.classification import (
+    RuleSpec,
+    create_cost_center,
+    create_rule,
+    seed_neutral_data,
+    set_cost_center_active,
+    set_rule_active,
+)
+from fiskal.db.models import (
+    Account,
+    AccountHolder,
+    Category,
+    CostCenter,
+    Import,
+    Rule,
+    Transaction,
+)
 from fiskal.db.session import build_session_factory
 from fiskal.domain.enums import CategoryKind, TransactionStatus, TransactionType
+from fiskal.i18n import set_active_locale
+from fiskal.profile_settings import get_language, set_language
 from fiskal.services import list_categories
 from fiskal.ui.session import _session_factory
 
@@ -26,6 +43,7 @@ UI_DIR = Path(__file__).resolve().parents[1] / "src" / "fiskal" / "ui"
 LAUNCHER = UI_DIR / "launcher.py"
 PAGES_DIR = UI_DIR / "pages"
 QUEUE_PAGE_SIZE = 25
+PRORATION_MONTHS = 12
 
 
 @pytest.fixture
@@ -70,12 +88,12 @@ def test_home_page_shows_pending_count_and_last_import(
 
 
 def test_home_page_links_to_working_pages(isolated_profile: Path) -> None:
-    """Home links to Import, Validate and Transactions."""
+    """Home links to every working page."""
     app = AppTest.from_file(str(LAUNCHER)).run()
 
     assert not app.exception, f"App raised an exception: {app.exception}"
     labels = [link.label for link in app.get("page_link")]
-    assert labels == ["Import", "Validate", "Transactions"]
+    assert labels == ["Import", "Validate", "Transactions", "Settings"]
 
 
 def test_import_page_renders(isolated_profile: Path) -> None:
@@ -539,3 +557,270 @@ def test_transactions_filter_shows_rule_validated_and_sends_back(
     stored = _stored(isolated_profile, txn_id)
     assert stored.status == TransactionStatus.PENDING.value
     assert stored.validated_by_rule is False
+
+
+SETTINGS_PAGE = PAGES_DIR / "4_Settings.py"
+
+
+@pytest.fixture(autouse=True)
+def _reset_locale() -> None:
+    """Keep the process-wide active language from leaking between tests."""
+    yield
+    set_active_locale("en")
+
+
+def test_validate_page_notice_without_owner_cost_center(
+    isolated_profile: Path,
+) -> None:
+    """Validate points to Settings until the owner creates a cost center."""
+    app = AppTest.from_file(str(LAUNCHER)).run()
+    app.switch_page("pages/2_Validate.py").run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    infos = [info.value for info in app.info]
+    assert any("cost center" in text for text in infos)
+    assert "Open Settings" in [link.label for link in app.get("page_link")]
+
+
+def test_validate_page_notice_disappears_with_cost_center(
+    isolated_profile: Path,
+) -> None:
+    """The notice is gone once an owner-created cost center exists."""
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        seed_neutral_data(session)
+        create_cost_center(session, "Flat A")
+
+    app = AppTest.from_file(str(LAUNCHER)).run()
+    app.switch_page("pages/2_Validate.py").run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert not any("cost center" in info.value for info in app.info)
+    assert app.get("page_link") == []
+
+
+def test_settings_page_renders_seed_items_with_help(isolated_profile: Path) -> None:
+    """Settings lists seed items and shows their descriptions."""
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert "Settings" in [h.value for h in app.header]
+    section = app.radio(key="settings_section")
+    assert section.value == "cost_centers"
+    assert list(section.options) == ["Cost centers", "Categories", "Rules"]
+    captions = [caption.value for caption in app.caption]
+    assert "Spending shared by the whole household." in captions
+    _open_section(app, "categories")
+    captions = [caption.value for caption in app.caption]
+    assert "Groceries, restaurants and takeaway." in captions
+    labels = [expander.label for expander in app.expander]
+    assert "Rental expenses " in labels or "Rental expenses" in labels
+
+
+def test_settings_creates_and_deactivates_cost_center(isolated_profile: Path) -> None:
+    """A cost center can be created, renamed, deactivated and reactivated."""
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    app.text_input[0].input("Flat A")
+    app.button(key="settings_cost_center_create_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert 'Cost center "Flat A" created.' in [s.value for s in app.success]
+    flat = next(e for e in app.expander if e.label.startswith("Flat A"))
+    assert flat is not None
+
+    key = next(b.key for b in app.button if b.key and b.key.endswith("_toggle"))
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        created = session.execute(
+            select(CostCenter).where(CostCenter.custom_name == "Flat A")
+        ).scalar_one()
+    toggle = app.button(key=f"settings_cc_{created.id}_toggle")
+    toggle.click().run()
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    with factory() as session:
+        assert not session.get(CostCenter, created.id).is_active
+    assert any(e.label.startswith("Flat A (inactive)") for e in app.expander)
+
+    app.button(key=f"settings_cc_{created.id}_toggle").click().run()
+    with factory() as session:
+        assert session.get(CostCenter, created.id).is_active
+    assert key
+
+
+def test_settings_rejects_duplicate_cost_center(isolated_profile: Path) -> None:
+    """A duplicate name shows an error instead of crashing."""
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    app.text_input[0].input("Household")
+    app.button(key="settings_cost_center_create_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert any("already in use" in e.value for e in app.error)
+
+
+def test_settings_shows_catalog_errors_in_spanish(isolated_profile: Path) -> None:
+    """A catalog error is shown in the chosen interface language."""
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        seed_neutral_data(session)
+        set_language(session, "es")
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    app.text_input[0].input("Household")
+    app.button(key="settings_cost_center_create_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert [e.value for e in app.error] == ['El nombre "Household" ya está en uso.']
+
+
+def test_settings_rule_editor_keeps_inactive_cost_center(
+    isolated_profile: Path,
+) -> None:
+    """Editing a rule never swaps its inactive cost center for another one."""
+    _seed_pending(isolated_profile, [])
+    rule = next(r for r in _rules(isolated_profile) if r.pattern == "salary")
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        flat = create_cost_center(session, "Flat A")
+        flat_id = flat.id
+        stored = session.get(Rule, rule.id)
+        stored.cost_center_id = flat_id
+        session.commit()
+        set_rule_active(session, rule.id, active=False)
+        set_cost_center_active(session, flat_id, active=False)
+
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "rules")
+    selector = app.selectbox(key=f"settings_rule_{rule.id}_cost_center")
+    assert selector.value is not None
+    assert selector.value.id == flat_id
+
+    app.text_input(key=f"settings_rule_{rule.id}_pattern").input("wages")
+    app.button(
+        key=f"FormSubmitter:settings_rule_{rule.id}_edit-Save rule"
+    ).click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    saved = next(r for r in _rules(isolated_profile) if r.id == rule.id)
+    assert saved.cost_center_id == flat_id
+
+
+def _open_section(app: AppTest, name: str) -> None:
+    """Choose a Settings section the way the owner does."""
+    app.radio(key="settings_section").set_value(name).run()
+    assert not app.exception, f"App raised an exception: {app.exception}"
+
+
+def test_settings_rule_error_stays_in_rules_section(
+    isolated_profile: Path,
+) -> None:
+    """A failed rule save keeps the owner in Rules with the error on screen."""
+    _seed_pending(isolated_profile, [])
+    rule = next(r for r in _rules(isolated_profile) if r.pattern == "salary")
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        flat = create_cost_center(session, "Flat A")
+        stored = session.get(Rule, rule.id)
+        stored.cost_center_id = flat.id
+        session.commit()
+        set_rule_active(session, rule.id, active=False)
+        set_cost_center_active(session, flat.id, active=False)
+
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "rules")
+    app.text_input(key=f"settings_rule_{rule.id}_pattern").input("wages")
+    app.button(
+        key=f"FormSubmitter:settings_rule_{rule.id}_edit-Save rule"
+    ).click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert app.radio(key="settings_section").value == "rules"
+    assert any("inactive" in e.value for e in app.error)
+
+
+def test_settings_success_stays_in_categories_section(
+    isolated_profile: Path,
+) -> None:
+    """A saved category shows its message without leaving Categories."""
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "categories")
+    app.text_input(key="settings_category_create_name").input("Flat A taxes")
+    app.button(key="settings_category_create_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert app.radio(key="settings_section").value == "categories"
+    assert 'Category "Flat A taxes" created.' in [s.value for s in app.success]
+    assert app.text_input(key="settings_category_create_name") is not None
+
+
+def test_settings_creates_category(isolated_profile: Path) -> None:
+    """An income category with a source can be created from the page."""
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "categories")
+    app.text_input(key="settings_category_create_name").input("Flat A rent")
+    app.selectbox(key="settings_category_create_kind").select("income")
+    app.selectbox(key="settings_category_create_source").select("rental")
+    app.text_input(key="settings_category_create_months").input("12")
+    app.button(key="settings_category_create_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert 'Category "Flat A rent" created.' in [s.value for s in app.success]
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        created = session.execute(
+            select(Category).where(Category.custom_name == "Flat A rent")
+        ).scalar_one()
+        assert created.kind == "income"
+        assert created.income_source == "rental"
+        assert created.default_proration_months == PRORATION_MONTHS
+
+
+def test_settings_edits_and_deactivates_rule(isolated_profile: Path) -> None:
+    """A seed rule can be edited and deactivated from the Rules tab."""
+    _seed_pending(isolated_profile, [])
+    rule = next(r for r in _rules(isolated_profile) if r.pattern == "salary")
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "rules")
+
+    app.text_input(key=f"settings_rule_{rule.id}_pattern").input("wages")
+    app.button(
+        key=f"FormSubmitter:settings_rule_{rule.id}_edit-Save rule"
+    ).click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert any("Rule saved" in s.value for s in app.success)
+    assert (
+        next(r for r in _rules(isolated_profile) if r.id == rule.id).pattern == "wages"
+    )
+
+    app.button(key=f"settings_rule_{rule.id}_toggle").click().run()
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert not next(r for r in _rules(isolated_profile) if r.id == rule.id).is_active
+
+
+def test_language_switch_is_saved_and_applied(isolated_profile: Path) -> None:
+    """Choosing Spanish is stored in the profile and translates every page."""
+    app = AppTest.from_file(str(LAUNCHER)).run()
+    assert "Home" in [h.value for h in app.header]
+
+    app.sidebar.selectbox(key="language_selector").select("es").run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert "Inicio" in [h.value for h in app.header]
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        assert get_language(session) == "es"
+
+    # A fresh run (a new session on the same profile) keeps the language, and
+    # pages that were already built follow it.
+    set_active_locale("en")
+    validate = AppTest.from_file(str(PAGES_DIR / "2_Validate.py")).run()
+    assert "Validar" in [h.value for h in validate.header]
+    settings = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    assert "Ajustes" in [h.value for h in settings.header]
+
+
+def test_default_language_when_unset(isolated_profile: Path) -> None:
+    """Without a saved choice the interface stays in English."""
+    app = AppTest.from_file(str(LAUNCHER)).run()
+
+    assert app.sidebar.selectbox(key="language_selector").value == "en"
+    assert "Home" in [h.value for h in app.header]

@@ -719,7 +719,7 @@ def test_upgrade_populated_profile_from_previous_revision(tmp_path: Path) -> Non
     _run_alembic(db_path, "upgrade", "head")
 
     current = _run_alembic(db_path, "current")
-    assert "b7d4e1f20a93 (head)" in current.stdout
+    assert "d5e9a2c7f418 (head)" in current.stdout
     _run_alembic(db_path, "check")
     with make_engine(f"sqlite:///{db_path}").connect() as connection:
         rule_category = connection.exec_driver_sql(
@@ -737,6 +737,7 @@ def test_downgrade_with_rule_validated_rows_is_refused(tmp_path: Path) -> None:
     """The validated-by-rule marker cannot be dropped while rows carry it."""
     db_path = tmp_path / "marked.db"
     _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "downgrade", "b7d4e1f20a93")
     session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
     account = _make_account(session)
     txn = _make_transaction(session, account=account, identity_key="marked")
@@ -748,17 +749,46 @@ def test_downgrade_with_rule_validated_rows_is_refused(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "validated-by-rule marker" in result.stderr
-    assert "b7d4e1f20a93 (head)" in _run_alembic(db_path, "current").stdout
-    _run_alembic(db_path, "check")
+    assert "b7d4e1f20a93" in _run_alembic(db_path, "current").stdout
 
 
 def test_downgrade_without_rule_validated_rows_drops_marker(tmp_path: Path) -> None:
     """With no marked rows the marker column is dropped and re-added cleanly."""
     db_path = tmp_path / "unmarked.db"
     _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "downgrade", "b7d4e1f20a93")
 
     _run_alembic(db_path, "downgrade", "-1")
     _run_alembic(db_path, "upgrade", "head")
 
-    assert "b7d4e1f20a93 (head)" in _run_alembic(db_path, "current").stdout
+    assert "d5e9a2c7f418 (head)" in _run_alembic(db_path, "current").stdout
+    _run_alembic(db_path, "check")
+
+
+def test_downgrade_with_profile_settings_is_refused(tmp_path: Path) -> None:
+    """Saved profile settings cannot be dropped by a downgrade."""
+    db_path = tmp_path / "settings.db"
+    _run_alembic(db_path, "upgrade", "head")
+    engine = make_engine(f"sqlite:///{db_path}")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO profile_settings (key, value) VALUES ('language', 'es')"
+        )
+    engine.dispose()
+
+    result = _run_alembic(db_path, "downgrade", "-1", check=False)
+
+    assert result.returncode != 0
+    assert "profile settings" in result.stderr
+    assert "d5e9a2c7f418 (head)" in _run_alembic(db_path, "current").stdout
+
+
+def test_downgrade_without_profile_settings_drops_table(tmp_path: Path) -> None:
+    """With no saved settings the table is dropped and re-created cleanly."""
+    db_path = tmp_path / "empty-settings.db"
+    _run_alembic(db_path, "upgrade", "head")
+
+    _run_alembic(db_path, "downgrade", "-1")
+    _run_alembic(db_path, "upgrade", "head")
+
     _run_alembic(db_path, "check")

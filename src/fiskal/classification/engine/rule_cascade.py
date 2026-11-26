@@ -37,6 +37,11 @@ def _rule_sort_key(rule: Rule) -> tuple[int, int, str]:
     return (group, rule.priority, str(rule.id))
 
 
+def sort_rules(rules: list[Rule]) -> list[Rule]:
+    """Return ``rules`` in precedence order, whether active or not."""
+    return sorted(rules, key=_rule_sort_key)
+
+
 def sorted_active_rules(session: Session) -> list[Rule]:
     """Return active rules in precedence order."""
     rules = list(

@@ -24,6 +24,7 @@ from fiskal.ui.labels import (
     status_label,
     transaction_type_label,
 )
+from fiskal.ui.language import apply_profile_language
 from fiskal.ui.messages import flash, show_flashes
 from fiskal.ui.session import open_session
 
@@ -183,6 +184,7 @@ def _render_table(session: Session) -> None:
 
 def main() -> None:
     """Render the transactions page."""
+    apply_profile_language()
     st.set_page_config(page_title=translate("nav.transactions"), page_icon="🧾")
     st.header(translate("nav.transactions"))
     show_flashes()

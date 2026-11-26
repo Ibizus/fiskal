@@ -25,6 +25,9 @@ keep transactions, and report by category and cost center.
    confirm or reject internal-transfer pair proposals, and attribute a holder
    (person). Guided bulk history import mode (validating years of history in
    blocks) remains to be built.
+   Settings page: cost centers, categories, rules and the interface language
+   are configurable from the interface. Follow-ups: recurring templates
+   management, detector thresholds, accounts editing.
 8. Transactions page with filters (account, type, status and text search).
    Manual entries and recurring templates remain to be built.
 9. Reports and proration (cash view vs real-cost view).

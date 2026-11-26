@@ -10,7 +10,7 @@ function with a preview.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 
 from sqlalchemy import func, select, update
@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from fiskal.classification.engine import (
     reclassify_pending,
     rule_to_condition,
+    sort_rules,
     sorted_active_rules,
 )
 from fiskal.classification.validation_service import validate_transaction
@@ -230,6 +231,49 @@ def delete_rule(session: Session, rule_id: UUID) -> None:
 def list_active_rules(session: Session) -> list[Rule]:
     """Return active rules in precedence order."""
     return sorted_active_rules(session)
+
+
+def list_rules(session: Session) -> list[Rule]:
+    """Return every rule, active or not, in precedence order.
+
+    The order is the one the classification cascade uses.
+    """
+    return sort_rules(list(session.execute(select(Rule)).scalars()))
+
+
+def spec_from_rule(rule: Rule) -> RuleSpec:
+    """Return the editable specification that describes ``rule`` today."""
+    return RuleSpec(
+        priority=rule.priority,
+        mode=rule.mode,
+        pattern=rule.pattern,
+        transaction_type=rule.transaction_type,
+        category_id=rule.category_id,
+        cost_center_id=rule.cost_center_id,
+        person_id=rule.person_id,
+        amount_min_minor=rule.amount_min_minor,
+        amount_max_minor=rule.amount_max_minor,
+        day_of_month_min=rule.day_of_month_min,
+        day_of_month_max=rule.day_of_month_max,
+        is_active=rule.is_active,
+    )
+
+
+def set_rule_active(session: Session, rule_id: UUID, *, active: bool) -> Rule:
+    """Deactivate or reactivate a rule and reclassify only pending transactions.
+
+    Reactivating validates the rule again, so a rule whose category or cost
+    center has since been deactivated is refused instead of silently reviving.
+    """
+    rule = session.get(Rule, rule_id)
+    if rule is None:
+        raise RuleNotFoundError("rule not found")
+    if active and not rule.is_active:
+        _validate_rule_input(session, replace(spec_from_rule(rule), is_active=True))
+    rule.is_active = active
+    session.commit()
+    reclassify_pending(session)
+    return rule
 
 
 def find_rule_collisions(

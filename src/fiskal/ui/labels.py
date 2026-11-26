@@ -56,3 +56,24 @@ def person_label(name: str | None) -> str:
 def format_minor(amount_minor: int, currency_code: str) -> str:
     """Format integer minor units as a plain decimal with its currency code."""
     return f"{amount_minor / 100:.2f} {currency_code}"
+
+
+def help_text(name_key: str | None) -> str:
+    """Return the short description of a seed item, or an empty string."""
+    if not name_key:
+        return ""
+    key = f"{name_key}.help"
+    text = translate(key)
+    return "" if text == f"[{key}]" else text
+
+
+def status_marker(is_active: bool) -> str:
+    """Return the marker shown next to an item that is deactivated."""
+    return "" if is_active else f"({translate('settings.inactive')})"
+
+
+def format_minor_plain(amount_minor: int | None) -> str:
+    """Format optional integer minor units as a plain decimal, or a dash."""
+    if amount_minor is None:
+        return "–"
+    return f"{amount_minor / 100:.2f}"
