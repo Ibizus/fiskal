@@ -112,8 +112,10 @@ def reclassify_pending(
     engine (rules or history) or that are still unclassified are reset. A
     pending row the user already classified by hand (``origin`` manual or
     template with a category set) is left untouched, as are validated rows.
-    A person attribution set by a rule is cleared with the rest of the rule's
-    classification; any other attribution is kept.
+    The person on a reset row whose ``origin`` is rule is owned by the engine
+    and is cleared with the rest of the rule's classification. A hand-set
+    attribution is protected because a manual edit switches the row's
+    ``origin`` to manual, and classified manual rows are never reset.
     A rule's hit is only counted when a row moves to a different rule.
     """
     targets = _load_reclassify_targets(session, transaction_ids)

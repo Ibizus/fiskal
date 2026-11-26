@@ -339,7 +339,7 @@ def _income_spec(category: Category, *, pattern: str, is_active: bool) -> RuleSp
 def test_rule_change_clears_rule_set_person(session: Session, change: str) -> None:
     """A rule's person attribution does not survive once the rule stops applying.
 
-    A person the user set by hand on another pending row is kept.
+    A person on a row whose origin is not rule is not engine-owned and stays.
     """
     account = _account(session)
     income = _category(session, key="category.income", kind=CategoryKind.INCOME)
@@ -388,3 +388,56 @@ def test_rule_change_clears_rule_set_person(session: Session, change: str) -> No
     assert by_rule.category_id is None
     assert by_rule.person_id is None
     assert by_hand.person_id == grace.id
+
+
+def test_reclassify_clears_rule_owned_person_and_keeps_manual_person(
+    session: Session,
+) -> None:
+    """A rule-owned person is cleared on reclassify; a manual row keeps its person.
+
+    Both rows match the rule's pattern, so only the origin decides ownership.
+    """
+    account = _account(session)
+    income = _category(session, key="category.income", kind=CategoryKind.INCOME)
+    ada = _person(session, name="Ada")
+    grace = _person(session, name="Grace")
+    rule = _rule(
+        session,
+        pattern="salary",
+        transaction_type="income",
+        category=income,
+        person=ada,
+    )
+    rule_owned = _transaction(
+        session,
+        account=account,
+        description="monthly salary",
+        counterparty=None,
+        amount_minor=2_000,
+    )
+    manual = _transaction(
+        session,
+        account=account,
+        description="monthly salary bonus",
+        counterparty=None,
+        amount_minor=500,
+        origin=ClassificationOrigin.MANUAL,
+        category=income,
+        person=grace,
+    )
+    classify_pending(session)
+    session.refresh(rule_owned)
+    assert rule_owned.origin == ClassificationOrigin.RULE.value
+    assert rule_owned.person_id == ada.id
+
+    update_rule(
+        session, rule.id, _income_spec(income, pattern="salary", is_active=True)
+    )
+
+    session.refresh(rule_owned)
+    session.refresh(manual)
+    assert rule_owned.rule_id == rule.id
+    assert rule_owned.person_id is None
+    assert manual.origin == ClassificationOrigin.MANUAL.value
+    assert manual.category_id == income.id
+    assert manual.person_id == grace.id

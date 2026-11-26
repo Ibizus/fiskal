@@ -110,7 +110,10 @@ classification cascade over the new, pending movements:
 Rules and categories are never validated by the engine: every movement remains
 ``pending`` until the user confirms or corrects it in the validation queue.
 Rule changes reclassify only pending movements; a bulk reapply over validated
-history always shows a preview first.
+history always shows a preview first. On a pending movement classified by a
+rule, the holder belongs to the engine and is cleared when it is reclassified;
+a manual edit switches the movement to manual, and manual movements keep their
+holder.
 
 ### Neutral seed data
 
