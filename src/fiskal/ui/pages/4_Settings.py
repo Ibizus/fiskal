@@ -12,7 +12,6 @@ from fiskal.ui.settings_categories import render_categories
 from fiskal.ui.settings_cost_centers import render_cost_centers
 from fiskal.ui.settings_rules import render_rules
 
-
 SECTIONS = {
     "cost_centers": ("settings.tab_cost_centers", render_cost_centers),
     "categories": ("settings.tab_categories", render_categories),
@@ -40,6 +39,7 @@ def main() -> None:
     show_flashes()
     with open_session() as session:
         SECTIONS[section][1](session)
+
 
 if __name__ == "__main__":
     main()

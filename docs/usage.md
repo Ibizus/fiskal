@@ -15,7 +15,7 @@ uv run streamlit run src/fiskal/ui/launcher.py
 Then open the URL printed by Streamlit in your browser.
 
 The launcher opens **Home** and the sidebar lists it first, followed by the
-three working pages.
+four working pages.
 
 - **Home** — the number of pending movements, the date of the last import and
   links to the other pages. The full overview comes later with the reports.
@@ -45,7 +45,8 @@ The working pages:
   automatically; there you can send a movement back to the Validate queue. To
   correct one, send it back and validate it again: it then stays manual. Only the 500 most
   recent matching movements are shown; the page says when that limit is hit.
-- **Settings** — configure the application from the interface, in three tabs.
+- **Settings** — configure the application from the interface, in three sections
+  picked at the top of the page; the selected section stays open after a save.
   *Cost centers*: create one (for example one per rental property), rename it,
   deactivate and reactivate it. *Categories*: create and edit a category with
   its kind (income or expense), fixed or variable, the income source for
