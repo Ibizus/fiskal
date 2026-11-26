@@ -605,9 +605,13 @@ def test_settings_page_renders_seed_items_with_help(isolated_profile: Path) -> N
 
     assert not app.exception, f"App raised an exception: {app.exception}"
     assert "Settings" in [h.value for h in app.header]
-    assert [tab.label for tab in app.tabs] == ["Cost centers", "Categories", "Rules"]
+    section = app.radio(key="settings_section")
+    assert section.value == "cost_centers"
+    assert list(section.options) == ["Cost centers", "Categories", "Rules"]
     captions = [caption.value for caption in app.caption]
     assert "Spending shared by the whole household." in captions
+    _open_section(app, "categories")
+    captions = [caption.value for caption in app.caption]
     assert "Groceries, restaurants and takeaway." in captions
     labels = [expander.label for expander in app.expander]
     assert "Rental expenses " in labels or "Rental expenses" in labels
@@ -684,6 +688,7 @@ def test_settings_rule_editor_keeps_inactive_cost_center(
         set_cost_center_active(session, flat_id, active=False)
 
     app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "rules")
     selector = app.selectbox(key=f"settings_rule_{rule.id}_cost_center")
     assert selector.value is not None
     assert selector.value.id == flat_id
@@ -698,9 +703,58 @@ def test_settings_rule_editor_keeps_inactive_cost_center(
     assert saved.cost_center_id == flat_id
 
 
+def _open_section(app: AppTest, name: str) -> None:
+    """Choose a Settings section the way the owner does."""
+    app.radio(key="settings_section").set_value(name).run()
+    assert not app.exception, f"App raised an exception: {app.exception}"
+
+
+def test_settings_rule_error_stays_in_rules_section(
+    isolated_profile: Path,
+) -> None:
+    """A failed rule save keeps the owner in Rules with the error on screen."""
+    _seed_pending(isolated_profile, [])
+    rule = next(r for r in _rules(isolated_profile) if r.pattern == "salary")
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        flat = create_cost_center(session, "Flat A")
+        stored = session.get(Rule, rule.id)
+        stored.cost_center_id = flat.id
+        session.commit()
+        set_rule_active(session, rule.id, active=False)
+        set_cost_center_active(session, flat.id, active=False)
+
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "rules")
+    app.text_input(key=f"settings_rule_{rule.id}_pattern").input("wages")
+    app.button(
+        key=f"FormSubmitter:settings_rule_{rule.id}_edit-Save rule"
+    ).click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert app.radio(key="settings_section").value == "rules"
+    assert any("inactive" in e.value for e in app.error)
+
+
+def test_settings_success_stays_in_categories_section(
+    isolated_profile: Path,
+) -> None:
+    """A saved category shows its message without leaving Categories."""
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "categories")
+    app.text_input(key="settings_category_create_name").input("Flat A taxes")
+    app.button(key="settings_category_create_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert app.radio(key="settings_section").value == "categories"
+    assert 'Category "Flat A taxes" created.' in [s.value for s in app.success]
+    assert app.text_input(key="settings_category_create_name") is not None
+
+
 def test_settings_creates_category(isolated_profile: Path) -> None:
     """An income category with a source can be created from the page."""
     app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "categories")
     app.text_input(key="settings_category_create_name").input("Flat A rent")
     app.selectbox(key="settings_category_create_kind").select("income")
     app.selectbox(key="settings_category_create_source").select("rental")
@@ -724,6 +778,7 @@ def test_settings_edits_and_deactivates_rule(isolated_profile: Path) -> None:
     _seed_pending(isolated_profile, [])
     rule = next(r for r in _rules(isolated_profile) if r.pattern == "salary")
     app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "rules")
 
     app.text_input(key=f"settings_rule_{rule.id}_pattern").input("wages")
     app.button(
