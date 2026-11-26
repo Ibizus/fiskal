@@ -91,7 +91,7 @@ def _make_import(session: Session, account: Account) -> Import:
     return imp
 
 
-def _make_transaction(  # noqa: PLR0913
+def _make_transaction(
     session: Session,
     *,
     account: Account,

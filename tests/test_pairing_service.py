@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
+from fiskal.classification import classify_pending
 from fiskal.classification.pairing_service import (
     confirm_pair,
     find_proposals_for_transaction_ids,
@@ -26,6 +27,14 @@ from fiskal.domain.transfer_pairing import PairingError
 from fiskal.reports.helpers import (
     income_expense_total_minor,
     income_expense_transactions,
+)
+from tests.support.factories import (
+    _account,
+    _category,
+    _rule,
+)
+from tests.support.factories import (
+    _transaction as _classified_transaction,
 )
 
 
@@ -57,7 +66,7 @@ def account_b(session: Session) -> Account:
     return account
 
 
-def _transaction(  # noqa: PLR0913
+def _transaction(
     session: Session,
     account: Account,
     *,
@@ -265,3 +274,31 @@ def test_internal_transfers_are_excluded_from_income_expense_total(
     assert outgoing.id not in counted_ids
     assert incoming.id not in counted_ids
     assert income_expense_total_minor(session) == external_total
+
+
+def test_confirm_pair_and_unpair_clear_rule_link(session: Session) -> None:
+    """A rule-classified leg loses its rule link when paired or unpaired."""
+    source = _account(session, name="Source")
+    target = _account(session, name="Target")
+    category = _category(session)
+    rule = _rule(session, pattern="move", category=category)
+    left = _classified_transaction(
+        session, account=source, description="move money", amount_minor=-5000
+    )
+    right = _classified_transaction(
+        session, account=target, description="incoming", amount_minor=5000
+    )
+    classify_pending(session)
+    session.refresh(left)
+    assert left.rule_id == rule.id
+
+    confirm_pair(session, left.id, right.id)
+    session.refresh(left)
+    assert left.rule_id is None
+    assert left.transaction_type == TransactionType.INTERNAL_TRANSFER.value
+
+    left.rule_id = rule.id
+    session.commit()
+    unpair(session, left.id, right.id)
+    session.refresh(left)
+    assert left.rule_id is None

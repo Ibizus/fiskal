@@ -51,6 +51,28 @@ class RuleProposal:
     priority: int
 
 
+@dataclass(frozen=True)
+class RuleSpec:
+    """The editable specification of a rule, shared by create and update.
+
+    This is the full set of fields the rule editor collects. Every field must
+    be stated, so an update replaces the whole rule and never silently resets
+    an omitted field to a default.
+    """
+
+    priority: int
+    mode: RuleMatchMode | str
+    pattern: str
+    transaction_type: TransactionType | str
+    category_id: UUID
+    cost_center_id: UUID | None
+    amount_min_minor: int | None
+    amount_max_minor: int | None
+    day_of_month_min: int | None
+    day_of_month_max: int | None
+    is_active: bool
+
+
 def _coerce_mode(mode: RuleMatchMode | str) -> RuleMatchMode:
     if isinstance(mode, RuleMatchMode):
         return mode
@@ -81,35 +103,26 @@ def _required_category_kind(transaction_type: TransactionType) -> CategoryKind:
     return CategoryKind.EXPENSE
 
 
-def _validate_rule_input(  # noqa: PLR0913
+def _validate_rule_input(
     session: Session,
-    *,
-    mode: RuleMatchMode | str,
-    pattern: str,
-    transaction_type: TransactionType | str,
-    category_id: UUID,
-    cost_center_id: UUID | None,
-    amount_min_minor: int | None,
-    amount_max_minor: int | None,
-    day_of_month_min: int | None,
-    day_of_month_max: int | None,
+    spec: RuleSpec,
 ) -> tuple[RuleMatchMode, TransactionType, str]:
-    mode_enum = _coerce_mode(mode)
-    type_enum = _coerce_type(transaction_type)
+    mode_enum = _coerce_mode(spec.mode)
+    type_enum = _coerce_type(spec.transaction_type)
     required_kind = _required_category_kind(type_enum)
-    stripped_pattern = pattern.strip()
+    stripped_pattern = spec.pattern.strip()
     validate_condition(
         RuleCondition(
             mode=mode_enum,
             pattern=stripped_pattern,
-            amount_min_minor=amount_min_minor,
-            amount_max_minor=amount_max_minor,
-            day_of_month_min=day_of_month_min,
-            day_of_month_max=day_of_month_max,
+            amount_min_minor=spec.amount_min_minor,
+            amount_max_minor=spec.amount_max_minor,
+            day_of_month_min=spec.day_of_month_min,
+            day_of_month_max=spec.day_of_month_max,
         )
     )
 
-    category = session.get(Category, category_id)
+    category = session.get(Category, spec.category_id)
     if category is None:
         raise RuleValidationError("the rule category does not exist")
     if not category.is_active:
@@ -119,8 +132,8 @@ def _validate_rule_input(  # noqa: PLR0913
             f"category kind {category.kind} is incompatible with type {type_enum.value}"
         )
 
-    if cost_center_id is not None:
-        cost_center = session.get(CostCenter, cost_center_id)
+    if spec.cost_center_id is not None:
+        cost_center = session.get(CostCenter, spec.cost_center_id)
         if cost_center is None:
             raise RuleValidationError("the rule cost center does not exist")
         if not cost_center.is_active:
@@ -129,50 +142,25 @@ def _validate_rule_input(  # noqa: PLR0913
     return mode_enum, type_enum, stripped_pattern
 
 
-def create_rule(  # noqa: PLR0913
-    session: Session,
-    *,
-    priority: int,
-    mode: RuleMatchMode | str,
-    pattern: str,
-    transaction_type: TransactionType | str,
-    category_id: UUID,
-    cost_center_id: UUID | None = None,
-    amount_min_minor: int | None = None,
-    amount_max_minor: int | None = None,
-    day_of_month_min: int | None = None,
-    day_of_month_max: int | None = None,
-    is_active: bool = True,
-) -> Rule:
-    """Create a user rule and reclassify pending transactions with it.
+def create_rule(session: Session, spec: RuleSpec) -> Rule:
+    """Create a user rule from ``spec`` and reclassify pending transactions.
 
     The rule is always a user rule; seed rules are installed by the seeding
     function. Validation runs before anything is written.
     """
-    mode_enum, type_enum, stripped_pattern = _validate_rule_input(
-        session,
-        mode=mode,
-        pattern=pattern,
-        transaction_type=transaction_type,
-        category_id=category_id,
-        cost_center_id=cost_center_id,
-        amount_min_minor=amount_min_minor,
-        amount_max_minor=amount_max_minor,
-        day_of_month_min=day_of_month_min,
-        day_of_month_max=day_of_month_max,
-    )
+    mode_enum, type_enum, stripped_pattern = _validate_rule_input(session, spec)
     rule = Rule(
-        priority=priority,
+        priority=spec.priority,
         mode=mode_enum.value,
         pattern=stripped_pattern,
-        amount_min_minor=amount_min_minor,
-        amount_max_minor=amount_max_minor,
-        day_of_month_min=day_of_month_min,
-        day_of_month_max=day_of_month_max,
+        amount_min_minor=spec.amount_min_minor,
+        amount_max_minor=spec.amount_max_minor,
+        day_of_month_min=spec.day_of_month_min,
+        day_of_month_max=spec.day_of_month_max,
         transaction_type=type_enum.value,
-        category_id=category_id,
-        cost_center_id=cost_center_id,
-        is_active=is_active,
+        category_id=spec.category_id,
+        cost_center_id=spec.cost_center_id,
+        is_active=spec.is_active,
         origin=RuleOrigin.USER.value,
     )
     session.add(rule)
@@ -181,23 +169,8 @@ def create_rule(  # noqa: PLR0913
     return rule
 
 
-def update_rule(  # noqa: PLR0913
-    session: Session,
-    rule_id: UUID,
-    *,
-    priority: int,
-    mode: RuleMatchMode | str,
-    pattern: str,
-    transaction_type: TransactionType | str,
-    category_id: UUID,
-    cost_center_id: UUID | None,
-    amount_min_minor: int | None,
-    amount_max_minor: int | None,
-    day_of_month_min: int | None,
-    day_of_month_max: int | None,
-    is_active: bool,
-) -> Rule:
-    """Update a rule and reclassify only pending transactions.
+def update_rule(session: Session, rule_id: UUID, spec: RuleSpec) -> Rule:
+    """Update a rule from ``spec`` and reclassify only pending transactions.
 
     Validated transactions never change as a side effect of a rule change.
     """
@@ -205,29 +178,18 @@ def update_rule(  # noqa: PLR0913
     if rule is None:
         raise RuleNotFoundError("rule not found")
 
-    mode_enum, type_enum, stripped_pattern = _validate_rule_input(
-        session,
-        mode=mode,
-        pattern=pattern,
-        transaction_type=transaction_type,
-        category_id=category_id,
-        cost_center_id=cost_center_id,
-        amount_min_minor=amount_min_minor,
-        amount_max_minor=amount_max_minor,
-        day_of_month_min=day_of_month_min,
-        day_of_month_max=day_of_month_max,
-    )
-    rule.priority = priority
+    mode_enum, type_enum, stripped_pattern = _validate_rule_input(session, spec)
+    rule.priority = spec.priority
     rule.mode = mode_enum.value
     rule.pattern = stripped_pattern
-    rule.amount_min_minor = amount_min_minor
-    rule.amount_max_minor = amount_max_minor
-    rule.day_of_month_min = day_of_month_min
-    rule.day_of_month_max = day_of_month_max
+    rule.amount_min_minor = spec.amount_min_minor
+    rule.amount_max_minor = spec.amount_max_minor
+    rule.day_of_month_min = spec.day_of_month_min
+    rule.day_of_month_max = spec.day_of_month_max
     rule.transaction_type = type_enum.value
-    rule.category_id = category_id
-    rule.cost_center_id = cost_center_id
-    rule.is_active = is_active
+    rule.category_id = spec.category_id
+    rule.cost_center_id = spec.cost_center_id
+    rule.is_active = spec.is_active
     session.commit()
     reclassify_pending(session)
     return rule
@@ -275,7 +237,7 @@ def find_rule_collisions(
     return find_collisions(candidate, existing)
 
 
-def propose_rule_from_correction(  # noqa: PLR0913
+def propose_rule_from_correction(
     session: Session,
     transaction_id: UUID,
     *,

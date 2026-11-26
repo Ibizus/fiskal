@@ -25,6 +25,7 @@ from fiskal.classification.pairing_service import (
 from fiskal.classification.rules_service import (
     RuleNotFoundError,
     RuleProposal,
+    RuleSpec,
     create_rule,
     delete_rule,
     find_rule_collisions,
@@ -41,6 +42,7 @@ __all__ = [
     "ReapplyChange",
     "RuleNotFoundError",
     "RuleProposal",
+    "RuleSpec",
     "SeedResult",
     "apply_reapply_validated",
     "classify_pending",
