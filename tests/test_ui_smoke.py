@@ -20,6 +20,8 @@ from fiskal.classification import (
     create_cost_center,
     create_rule,
     seed_neutral_data,
+    set_cost_center_active,
+    set_rule_active,
 )
 from fiskal.db.models import (
     Account,
@@ -33,7 +35,7 @@ from fiskal.db.models import (
 from fiskal.db.session import build_session_factory
 from fiskal.domain.enums import CategoryKind, TransactionStatus, TransactionType
 from fiskal.i18n import set_active_locale
-from fiskal.profile_settings import get_language
+from fiskal.profile_settings import get_language, set_language
 from fiskal.services import list_categories
 from fiskal.ui.session import _session_factory
 
@@ -649,6 +651,51 @@ def test_settings_rejects_duplicate_cost_center(isolated_profile: Path) -> None:
 
     assert not app.exception, f"App raised an exception: {app.exception}"
     assert any("already in use" in e.value for e in app.error)
+
+
+def test_settings_shows_catalog_errors_in_spanish(isolated_profile: Path) -> None:
+    """A catalog error is shown in the chosen interface language."""
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        seed_neutral_data(session)
+        set_language(session, "es")
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    app.text_input[0].input("Household")
+    app.button(key="settings_cost_center_create_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert [e.value for e in app.error] == ['El nombre "Household" ya está en uso.']
+
+
+def test_settings_rule_editor_keeps_inactive_cost_center(
+    isolated_profile: Path,
+) -> None:
+    """Editing a rule never swaps its inactive cost center for another one."""
+    _seed_pending(isolated_profile, [])
+    rule = next(r for r in _rules(isolated_profile) if r.pattern == "salary")
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        flat = create_cost_center(session, "Flat A")
+        flat_id = flat.id
+        stored = session.get(Rule, rule.id)
+        stored.cost_center_id = flat_id
+        session.commit()
+        set_rule_active(session, rule.id, active=False)
+        set_cost_center_active(session, flat_id, active=False)
+
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    selector = app.selectbox(key=f"settings_rule_{rule.id}_cost_center")
+    assert selector.value is not None
+    assert selector.value.id == flat_id
+
+    app.text_input(key=f"settings_rule_{rule.id}_pattern").input("wages")
+    app.button(
+        key=f"FormSubmitter:settings_rule_{rule.id}_edit-Save rule"
+    ).click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    saved = next(r for r in _rules(isolated_profile) if r.id == rule.id)
+    assert saved.cost_center_id == flat_id
 
 
 def test_settings_creates_category(isolated_profile: Path) -> None:

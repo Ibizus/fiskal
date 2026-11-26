@@ -201,11 +201,18 @@ def render_rules(session: Session) -> None:
     categories = list_categories(session, active_only=False)
     active_categories = [category for category in categories if category.is_active]
     by_id: dict[object, Category] = {category.id: category for category in categories}
-    cost_centers = list_cost_centers(session)
+    all_cost_centers = list_cost_centers(session, active_only=False)
+    active_cost_centers = [item for item in all_cost_centers if item.is_active]
+    cost_centers_by_id = {item.id: item for item in all_cost_centers}
     for rule in rules:
-        # Keep an inactive current category selectable so the editor shows it.
+        # Keep an inactive current category or cost center selectable so the
+        # editor shows the rule's own value instead of a different one.
         choices = list(active_categories)
         current = by_id.get(rule.category_id)
         if current is not None and current not in choices:
             choices.append(current)
+        cost_centers = list(active_cost_centers)
+        current_cost_center = cost_centers_by_id.get(rule.cost_center_id)
+        if current_cost_center is not None and current_cost_center not in cost_centers:
+            cost_centers.append(current_cost_center)
         _render_item(session, rule, choices, cost_centers, by_id)

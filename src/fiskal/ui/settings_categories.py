@@ -90,7 +90,7 @@ def _render_create(session: Session) -> None:
     try:
         created = create_category(session, spec)
     except CatalogError as exc:
-        st.error(str(exc))
+        st.error(exc.message())
         return
     flash(
         "success",
@@ -125,7 +125,7 @@ def _render_item(session: Session, category: Category) -> None:
             flash("success", translate("settings.saved"))
             st.rerun()
     except CatalogError as exc:
-        st.error(str(exc))
+        st.error(exc.message())
 
 
 def render_categories(session: Session) -> None:

@@ -27,7 +27,21 @@ MAX_NAME_LENGTH = 255
 
 
 class CatalogError(Exception):
-    """Raised when a cost center or category operation is not allowed."""
+    """Raised when a cost center or category operation is not allowed.
+
+    Carries a translation key and its format parameters so the interface shows
+    the reason in the owner's language.
+    """
+
+    def __init__(self, key: str, **params: object) -> None:
+        """Store the translation key and the values its text refers to."""
+        super().__init__(key)
+        self.key = key
+        self.params = params
+
+    def message(self, locale: str | None = None) -> str:
+        """Return the translated reason, in the active locale by default."""
+        return translate(self.key, locale).format(**self.params)
 
 
 @dataclass(frozen=True)
@@ -44,9 +58,9 @@ class CategorySpec:
 def _clean_name(name: str) -> str:
     cleaned = " ".join(name.split())
     if not cleaned:
-        raise CatalogError("the name must not be empty")
+        raise CatalogError("settings.error.name_empty")
     if len(cleaned) > MAX_NAME_LENGTH:
-        raise CatalogError(f"the name must have at most {MAX_NAME_LENGTH} characters")
+        raise CatalogError("settings.error.name_too_long", max=MAX_NAME_LENGTH)
     return cleaned
 
 
@@ -84,7 +98,7 @@ def _ensure_unique(
     wanted = name.casefold()
     for item_id, name_key, custom_name in existing:
         if item_id != own_id and wanted in _names_of(name_key, custom_name):
-            raise CatalogError(f"the name '{name}' is already in use")
+            raise CatalogError("settings.error.name_in_use", name=name)
 
 
 def _cost_center_rows(session: Session) -> list[tuple[UUID, str | None, str | None]]:
@@ -104,14 +118,14 @@ def _category_rows(session: Session) -> list[tuple[UUID, str | None, str | None]
 def _get_cost_center(session: Session, cost_center_id: UUID) -> CostCenter:
     cost_center = session.get(CostCenter, cost_center_id)
     if cost_center is None:
-        raise CatalogError("the cost center does not exist")
+        raise CatalogError("settings.error.cost_center_missing")
     return cost_center
 
 
 def _get_category(session: Session, category_id: UUID) -> Category:
     category = session.get(Category, category_id)
     if category is None:
-        raise CatalogError("the category does not exist")
+        raise CatalogError("settings.error.category_missing")
     return category
 
 
@@ -161,14 +175,9 @@ def set_cost_center_active(
             ),
         )
         if rules:
-            raise CatalogError(
-                f"{rules} active rule(s) still assign this cost center; "
-                "change or deactivate them first"
-            )
+            raise CatalogError("settings.error.cost_center_in_rules", count=rules)
         if accounts:
-            raise CatalogError(
-                f"{accounts} account(s) still use this cost center by default"
-            )
+            raise CatalogError("settings.error.cost_center_in_accounts", count=accounts)
     cost_center.is_active = active
     session.commit()
     return cost_center
@@ -199,16 +208,16 @@ def _validated_category_fields(
         kind = CategoryKind(spec.kind)
         nature = CategoryNature(spec.nature)
     except ValueError as exc:
-        raise CatalogError(str(exc)) from exc
+        raise CatalogError("settings.error.invalid_choice") from exc
     source: str | None = None
     if kind is CategoryKind.INCOME:
         try:
             source = IncomeSource(spec.income_source or "").value
         except ValueError as exc:
-            raise CatalogError("an income category needs an income source") from exc
+            raise CatalogError("settings.error.income_source_required") from exc
     months = spec.default_proration_months
     if months is not None and months <= 0:
-        raise CatalogError("the proration months must be a positive number")
+        raise CatalogError("settings.error.proration_months_positive")
     return name, kind, nature, source, months
 
 
@@ -254,7 +263,7 @@ def update_category(
     name, kind, nature, source, months = _validated_category_fields(spec)
     _ensure_unique(_category_rows(session), name, own_id=category_id)
     if kind.value != category.kind and _category_is_used(session, category_id):
-        raise CatalogError("the kind of a category in use cannot change")
+        raise CatalogError("settings.error.kind_in_use")
     _apply_name(category, name)
     category.kind = kind.value
     category.nature = nature.value
@@ -277,10 +286,7 @@ def set_category_active(
             .where(Rule.category_id == category_id, Rule.is_active.is_(True)),
         )
         if rules:
-            raise CatalogError(
-                f"{rules} active rule(s) still assign this category; "
-                "change or deactivate them first"
-            )
+            raise CatalogError("settings.error.category_in_rules", count=rules)
     category.is_active = active
     session.commit()
     return category

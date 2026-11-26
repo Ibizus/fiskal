@@ -24,7 +24,12 @@ def parse_optional_amount_minor(text: str) -> int | None:
         amount = Decimal(cleaned)
     except InvalidOperation as exc:
         raise FormValueError(text) from exc
-    return int(amount * MINOR_UNITS_PER_MAJOR)
+    if not amount.is_finite():
+        raise FormValueError(text)
+    minor = amount * MINOR_UNITS_PER_MAJOR
+    if minor != minor.to_integral_value():
+        raise FormValueError(text)
+    return int(minor)
 
 
 def parse_optional_int(text: str) -> int | None:
