@@ -207,12 +207,16 @@ def validate_pending_in_bulk(
     cost_center_id: UUID | None,
     person_id: UUID | None,
     guided_action_id: UUID | None = None,
+    rule_id: UUID | None = None,
 ) -> int:
-    """Validate many pending transactions by hand with one classification.
+    """Validate many pending transactions with one classification.
 
     The checks and the resulting fields are the ones ``validate_transaction``
     applies: the classification becomes manual, so reclassification never
-    changes it and a person set here survives. Only rows that are still
+    changes it and a person set here survives. With ``rule_id`` the rows are
+    validated by that owner rule instead (``origin`` rule,
+    ``validated_by_rule``), exactly as the engine leaves the rows a user rule
+    validates, so they follow later edits of the rule. Only rows that are still
     pending and unpaired are touched, and the changes are flushed but not
     committed, so the caller decides the transaction boundary. Returns how many
     rows were validated.
@@ -239,9 +243,13 @@ def validate_pending_in_bulk(
                 category_id=category_id,
                 cost_center_id=cost_center_id,
                 person_id=person_id,
-                origin=ClassificationOrigin.MANUAL.value,
-                rule_id=None,
-                validated_by_rule=False,
+                origin=(
+                    ClassificationOrigin.MANUAL.value
+                    if rule_id is None
+                    else ClassificationOrigin.RULE.value
+                ),
+                rule_id=rule_id,
+                validated_by_rule=rule_id is not None,
                 guided_action_id=guided_action_id,
                 status=TransactionStatus.VALIDATED.value,
             )

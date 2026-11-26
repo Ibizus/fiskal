@@ -416,19 +416,25 @@ thousands of rows. The mode is an alternative view of the Validate page.
   so a block never validates a transfer leg as income or expense. The top of the
   page shows the pending count and the percentage classified.
 - **Confirm.** One decision (type, category, cost center, optional person) is
-  applied to every pending row of the group in a single database transaction,
-  after showing how many rows it affects. The rows become manual validated
-  classifications. By default an owner rule is created from the same decision,
-  with the normalized description as an editable ``contains`` pattern and an
-  amount bound that keeps it on the group's side of the books; the owner can
-  uncheck it to validate the rows without a rule. The rule is created through
-  the existing rule path, so it also validates other pending rows it matches.
+  applied to every pending row of the group in a single database transaction.
+  By default an owner rule is created from the same decision, with the
+  normalized description as an editable ``contains`` pattern (it must stay part
+  of the description) and an amount bound that keeps it on the group's side of
+  the books. The group's rows are then validated by that rule, as any owner
+  rule validates the rows it matches, so they follow later edits of the rule.
+  The rule is applied through the existing rule path, so it also validates
+  other pending rows it matches. Unchecking it validates the group's rows by
+  hand (manual classifications) without a rule. Before applying, a write-free
+  preview shows how many rows the confirmation affects, including the other
+  rows the rule would validate.
 - **Spread warning.** Amounts never split a group. When the largest absolute
   amount is at least ``WIDE_SPREAD_FACTOR`` (3) times the smallest, the group
-  warns that a rule is not recommended.
+  warns that a rule is not recommended; the rule option stays checked by
+  default and the owner decides.
 - **Undo.** Each confirmation is recorded as a guided action and its rows point
-  to it. Undoing returns the rows still in the state the action left (validated
-  and manual) to pending, keeping their classification as a preselection, and
+  to it. Undoing returns the rows still in the state the action left (validated,
+  and manual or still validated by the action's rule) to pending as manual rows,
+  keeping their classification as a preselection, and
   deactivates the rule the action created. Rows changed afterwards are left
   untouched. Returning single rows leaves the rule alone. This is not a
   transaction editor.

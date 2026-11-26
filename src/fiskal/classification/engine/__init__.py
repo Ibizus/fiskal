@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.orm import Session
 
 from fiskal.classification.engine.default_cost_center import apply_default_cost_center
@@ -163,11 +163,10 @@ def _load_unclassified(
     return list(session.execute(statement).scalars())
 
 
-def _load_reclassify_targets(
-    session: Session, transaction_ids: Sequence[UUID] | None
-) -> list[Transaction]:
+def reclassify_target_condition() -> ColumnElement[bool]:
+    """Return the condition selecting the rows ``reclassify_pending`` resets."""
     rule_origin = ClassificationOrigin.RULE.value
-    statement = select(Transaction).where(
+    return and_(
         Transaction.paired_transaction_id.is_(None),
         or_(
             and_(
@@ -185,6 +184,12 @@ def _load_reclassify_targets(
             ),
         ),
     )
+
+
+def _load_reclassify_targets(
+    session: Session, transaction_ids: Sequence[UUID] | None
+) -> list[Transaction]:
+    statement = select(Transaction).where(reclassify_target_condition())
     if transaction_ids is not None:
         statement = statement.where(Transaction.id.in_(transaction_ids))
     return list(session.execute(statement).scalars())
@@ -199,6 +204,7 @@ __all__ = [
     "classify_pending",
     "preview_reapply_validated",
     "reclassify_pending",
+    "reclassify_target_condition",
     "rule_to_condition",
     "sort_rules",
     "sorted_active_rules",

@@ -166,24 +166,31 @@ movements.
 
 For each group choose the type, category, cost center and, optionally, the
 person it is attributed to, then press **Classify the group**. The group says
-beforehand how many movements will be affected. Confirming:
+beforehand how many movements will be affected, including the other pending
+movements the rule would validate. Confirming:
 
-- validates every pending movement of the group by hand (they become manual
-  classifications, so they never change on their own and feed the history
-  suggestions), in one database transaction: if anything fails, nothing is
-  written;
+- validates every pending movement of the group in one database transaction:
+  if anything fails, nothing is written. The validated movements feed the
+  history suggestions;
 - by default also creates a rule of yours whose pattern is the normalized
-  description (editable before confirming). The rule is limited to the same side
-  of the books (expenses or income), validates other pending movements that
-  contain the pattern and classifies future imports. Uncheck **Also create a
-  rule for this description** to validate only the movements of the group;
-- applies the chosen person to every movement as a manual attribution, which
-  later reclassification never clears.
+  description (editable before confirming, as long as it stays part of the
+  description). The group's movements are validated by that rule, like any
+  movement one of your rules validates, so they follow the rule if you edit it
+  later in Settings. The rule is limited to the same side of the books
+  (expenses or income), validates other pending movements that contain the
+  pattern and classifies future imports;
+- with **Also create a rule for this description** unchecked, validates only
+  the movements of the group, by hand: they become manual classifications and
+  never change on their own;
+- applies the chosen person to every movement. Without a rule it is a manual
+  attribution that later reclassification never clears; with a rule the rule
+  carries the person.
 
 Amounts are not used to split a group. When the amounts in a group differ widely
 (the largest is at least three times the smallest) the group shows a warning
 that recommends not creating a rule: validate only those movements, or review
-them one by one in the queue. The rule option starts unchecked for such groups.
+them one by one in the queue. The rule option stays checked; uncheck it if you
+follow the recommendation.
 
 Movements that are halves of a pending internal-transfer proposal, and paired
 transfers, never appear in a group: confirm or reject the pair first.

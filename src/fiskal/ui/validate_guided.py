@@ -31,6 +31,7 @@ from fiskal.classification import (
     list_guided_action_rows,
     list_guided_actions,
     list_pending_groups,
+    preview_group,
     summarize_groups,
     undo_guided_action,
     undo_guided_rows,
@@ -134,7 +135,38 @@ def _render_group_header(group: TransactionGroup) -> None:
                     high=_money(group, group.max_abs_minor),
                 )
             )
-    st.caption(translate("guided.affected").format(count=group.row_count))
+
+
+def _render_affected(
+    session: Session,
+    group: TransactionGroup,
+    held_ids: set[UUID],
+    *,
+    create_rule: bool,
+    pattern: str,
+) -> None:
+    """Show, before confirming, how many movements the confirmation validates."""
+    try:
+        preview = preview_group(
+            session,
+            group.key,
+            held_ids,
+            create_rule=create_rule,
+            rule_pattern=pattern,
+        )
+    except GuidedError as exc:
+        st.warning(str(exc))
+        return
+    if preview.other_rows:
+        st.caption(
+            translate("guided.affected_with_rule").format(
+                count=preview.total,
+                group=preview.group_rows,
+                others=preview.other_rows,
+            )
+        )
+    else:
+        st.caption(translate("guided.affected").format(count=preview.group_rows))
 
 
 def _default_type(group: TransactionGroup) -> str:
@@ -146,11 +178,43 @@ def _default_type(group: TransactionGroup) -> str:
 
 
 def _render_group_form(
-    group: TransactionGroup, options: _Options
+    session: Session,
+    group: TransactionGroup,
+    options: _Options,
+    held_ids: set[UUID],
 ) -> _FormValues | None:
     base = group_widget_key(group.key)
-    with st.form(base):
+    with st.container(border=True):
         _render_group_header(group)
+        create_rule = st.checkbox(
+            translate("guided.create_rule"),
+            value=True,
+            help=translate("guided.create_rule_help"),
+            key=f"{base}_create_rule",
+        )
+        pattern = st.text_input(
+            translate("validate.rule_pattern"),
+            help=translate("validate.rule_pattern_help"),
+            value=group.key.normalized_description,
+            key=f"{base}_pattern",
+        )
+        _render_affected(
+            session, group, held_ids, create_rule=create_rule, pattern=pattern
+        )
+        return _render_classification_form(
+            base, group, options, create_rule=create_rule, pattern=pattern
+        )
+
+
+def _render_classification_form(
+    base: str,
+    group: TransactionGroup,
+    options: _Options,
+    *,
+    create_rule: bool,
+    pattern: str,
+) -> _FormValues | None:
+    with st.form(base):
         chosen_type = st.selectbox(
             translate("validate.type"),
             TYPE_OPTIONS,
@@ -175,18 +239,6 @@ def _render_group_form(
             [None, *options.persons],
             format_func=person_option_label,
             key=f"{base}_person",
-        )
-        create_rule = st.checkbox(
-            translate("guided.create_rule"),
-            value=not group.has_wide_spread,
-            help=translate("guided.create_rule_help"),
-            key=f"{base}_create_rule",
-        )
-        pattern = st.text_input(
-            translate("validate.rule_pattern"),
-            help=translate("validate.rule_pattern_help"),
-            value=group.key.normalized_description,
-            key=f"{base}_pattern",
         )
         submitted = st.form_submit_button(
             translate("guided.submit"),
@@ -281,7 +333,7 @@ def _render_groups(session: Session, held_ids: set[UUID]) -> None:
         offset=(page - 1) * GROUP_PAGE_SIZE,
     )
     for group in groups:
-        values = _render_group_form(group, options)
+        values = _render_group_form(session, group, options, held_ids)
         if values is not None and _confirm(session, group, values):
             st.rerun()
 

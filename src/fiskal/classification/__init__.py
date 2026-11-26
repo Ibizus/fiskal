@@ -30,6 +30,7 @@ from fiskal.classification.engine import (
 from fiskal.classification.guided_actions import (
     GroupClassification,
     GroupOutcome,
+    GroupPreview,
     GuidedActionSummary,
     GuidedError,
     UndoOutcome,
@@ -37,6 +38,7 @@ from fiskal.classification.guided_actions import (
     count_guided_actions,
     list_guided_action_rows,
     list_guided_actions,
+    preview_group,
     undo_guided_action,
     undo_guided_rows,
 )
@@ -95,6 +97,7 @@ __all__ = [
     "GroupClassification",
     "GroupKey",
     "GroupOutcome",
+    "GroupPreview",
     "GroupSummary",
     "GuidedActionSummary",
     "GuidedError",
@@ -132,6 +135,7 @@ __all__ = [
     "list_pending_transactions",
     "list_rule_validated_transactions",
     "pending_proposals",
+    "preview_group",
     "preview_reapply_validated",
     "proposal_leg_ids",
     "propose_rule_from_correction",

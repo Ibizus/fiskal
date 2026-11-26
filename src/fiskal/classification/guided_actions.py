@@ -8,23 +8,30 @@ be undone.
 
 What a confirmation does to its rows
 ------------------------------------
-The rows become validated by hand: ``origin`` manual, no rule link. That keeps
-the owner's decision, and a person set on the group, stable under later
-reclassification, and lets the rows feed history suggestions. The optional rule
-is created through the same path as any owner rule (``add_rule`` followed by
-``reclassify_pending``), so it also validates *other* pending movements that
-contain its pattern and classifies the next imports. Closed months do not exist
-yet; the pairing guards that do exist are respected, see ``guided_groups``.
+Without a rule the rows become validated by hand: ``origin`` manual, no rule
+link, so the owner's decision and a person set on the group stay stable under
+later reclassification. With a rule (the default) the rows are validated by
+that rule, as any owner rule validates the rows it matches: ``origin`` rule,
+``rule_id`` and ``validated_by_rule`` set, so they follow later edits of the
+rule and its person. The rule's pattern must match the group's description, so
+it covers every row of the group. The rule is then applied through the same
+path as any owner rule (``reclassify_pending``), so it also validates *other*
+pending movements that contain its pattern and classifies the next imports.
+``preview_group`` counts both sets without writing, so the owner sees the real
+number of affected movements before confirming. Either way the rows feed
+history suggestions. Closed months do not exist yet; the pairing guards that
+do exist are respected, see ``guided_groups``.
 
 What an undo does
 -----------------
 Undoing returns the action's rows to pending. A row is returned only while it
-is still exactly what the action left: validated, still linked to the action
-and still ``origin`` manual. A row the owner has since corrected, or one that an
-explicit rules reapply over validated history reclassified (``origin`` rule),
-is a later decision and is left as it is. Returned rows keep their
-classification as a preselection and stay manual, like a row sent back from the
-queue, so they appear again in the group view for a corrected decision. Undoing
+is still exactly what the action left: validated, still linked to the action,
+and either manual or still validated by the rule the action created. A row the
+owner has since corrected, or one that an explicit rules reapply over validated
+history moved to another rule, is a later decision and is left as it is.
+Returned rows keep their classification as a preselection and become manual,
+like a row sent back from the queue, so they appear again in the group view for
+a corrected decision. Undoing
 a whole action also deactivates the rule it created, which sends the movements
 that rule validated automatically back to pending; returning single rows does
 not touch the rule.
@@ -34,13 +41,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, and_, func, or_, select, update
+from sqlalchemy.orm import Session, aliased
 
-from fiskal.classification.engine import reclassify_pending
+from fiskal.classification.engine import (
+    reclassify_pending,
+    reclassify_target_condition,
+)
 from fiskal.classification.guided_groups import (
     GroupKey,
     group_transaction_ids,
@@ -58,6 +68,11 @@ from fiskal.domain.enums import (
     RuleMatchMode,
     TransactionStatus,
     TransactionType,
+)
+from fiskal.domain.rule_matching import (
+    RuleCondition,
+    condition_matches,
+    validate_condition,
 )
 
 _UNDO_CHUNK_SIZE = 500
@@ -82,7 +97,8 @@ class GroupOutcome:
     """Result of confirming a group.
 
     ``validated_count`` is the number of movements of the group that were
-    validated. ``rule`` is the rule created with the group, if any, and
+    validated (by the rule when one was created). ``rule`` is the rule created
+    with the group, if any, and
     ``rule_validated_count`` is how many pending movements outside the group
     that rule validated automatically.
     """
@@ -110,40 +126,129 @@ class GuidedActionSummary:
     remaining_rows: int
 
 
+@dataclass(frozen=True)
+class GroupPreview:
+    """What confirming a group would validate, computed without writing.
+
+    ``group_rows`` are the pending movements of the group; ``other_rows`` are
+    the movements outside the group the new rule would validate (zero without
+    a rule).
+    """
+
+    group_rows: int
+    other_rows: int
+
+    @property
+    def total(self) -> int:
+        """Return every movement the confirmation would validate."""
+        return self.group_rows + self.other_rows
+
+
+def _group_rule_condition(key: GroupKey, pattern: str | None) -> RuleCondition:
+    """Return the matching condition of the rule a group confirmation creates.
+
+    The pattern defaults to the group's normalized description and must match
+    it, so the rule covers every row of the group. The amount bound keeps the
+    rule on the group's side of the books, so a rule made from purchases never
+    validates a refund from the same shop.
+    """
+    is_income = key.direction is GroupDirection.INCOME
+    condition = RuleCondition(
+        mode=RuleMatchMode.CONTAINS,
+        pattern=(pattern or "").strip() or key.normalized_description,
+        amount_min_minor=0 if is_income else None,
+        amount_max_minor=None if is_income else -1,
+    )
+    validate_condition(condition)
+    if not condition_matches(
+        condition,
+        normalized_description=key.normalized_description,
+        counterparty=None,
+        amount_minor=0 if is_income else -1,
+        operation_date=date.today(),
+    ):
+        raise GuidedError("the rule pattern must be part of the group's description")
+    return condition
+
+
 def _group_rule_spec(
     session: Session,
     key: GroupKey,
     classification: GroupClassification,
     pattern: str | None,
 ) -> RuleSpec:
-    """Return the rule a group confirmation creates.
-
-    The pattern defaults to the group's normalized description. The amount
-    bound keeps the rule on the group's side of the books, so a rule made from
-    purchases never validates a refund from the same shop.
-    """
-    is_income = key.direction is GroupDirection.INCOME
+    """Return the rule a group confirmation creates, see ``_group_rule_condition``."""
+    condition = _group_rule_condition(key, pattern)
     return RuleSpec(
         priority=top_priority(session),
-        mode=RuleMatchMode.CONTAINS,
-        pattern=(pattern or "").strip() or key.normalized_description,
+        mode=condition.mode,
+        pattern=condition.pattern,
         transaction_type=classification.transaction_type,
         category_id=classification.category_id,
         cost_center_id=classification.cost_center_id,
         person_id=classification.person_id,
-        amount_min_minor=0 if is_income else None,
-        amount_max_minor=None if is_income else -1,
+        amount_min_minor=condition.amount_min_minor,
+        amount_max_minor=condition.amount_max_minor,
         day_of_month_min=None,
         day_of_month_max=None,
         is_active=True,
     )
 
 
-def _count_rule_validated(session: Session, rule: Rule) -> int:
+def preview_group(
+    session: Session,
+    key: GroupKey,
+    held_ids: set[UUID],
+    *,
+    create_rule: bool,
+    rule_pattern: str | None = None,
+) -> GroupPreview:
+    """Return how many movements confirming the group would validate.
+
+    Nothing is written. With ``create_rule`` the count includes every other
+    movement the new top-priority rule would validate when it is applied: the
+    rows ``reclassify_pending`` would reconsider that match the rule, except
+    internal-transfer proposal legs, which a rule never validates. Raises
+    ``GuidedError`` when the pattern would not cover the group.
+    """
+    ids = group_transaction_ids(session, key, held_ids)
+    if not create_rule:
+        return GroupPreview(group_rows=len(ids), other_rows=0)
+    condition = _group_rule_condition(key, rule_pattern)
+    excluded = set(ids) | held_ids
+    candidates = session.execute(
+        select(
+            Transaction.id,
+            Transaction.normalized_description,
+            Transaction.counterparty,
+            Transaction.amount_minor,
+            Transaction.operation_date,
+        ).where(reclassify_target_condition())
+    )
+    other_rows = sum(
+        1
+        for row in candidates
+        if row.id not in excluded
+        and condition_matches(
+            condition,
+            normalized_description=row.normalized_description,
+            counterparty=row.counterparty,
+            amount_minor=row.amount_minor,
+            operation_date=row.operation_date,
+        )
+    )
+    return GroupPreview(group_rows=len(ids), other_rows=other_rows)
+
+
+def _count_rule_validated(session: Session, rule: Rule, action: GuidedAction) -> int:
     return session.execute(
         select(func.count()).where(
             Transaction.rule_id == rule.id,
             Transaction.validated_by_rule.is_(True),
+            or_(
+                Transaction.guided_action_id.is_(None),
+                Transaction.guided_action_id != action.id,
+            ),
         )
     ).scalar_one()
 
@@ -166,7 +271,8 @@ def confirm_group(
     confirmation is refused instead of applying to a different set.
 
     With ``create_rule`` an owner rule is created from the decision, with
-    ``rule_pattern`` (default: the normalized description) as its pattern.
+    ``rule_pattern`` (default: the normalized description) as its pattern, and
+    the group's rows are validated by that rule.
     """
     ids = group_transaction_ids(session, key, held_transaction_ids(session))
     if not ids:
@@ -203,8 +309,11 @@ def confirm_group(
             cost_center_id=classification.cost_center_id,
             person_id=classification.person_id,
             guided_action_id=action.id,
+            rule_id=rule.id if rule is not None else None,
         )
         if rule is not None:
+            rule.hit_count += action.row_count
+            rule.last_hit_at = datetime.now(UTC)
             reclassify_pending(session)
         session.commit()
     except Exception:
@@ -216,29 +325,56 @@ def confirm_group(
         validated_count=action.row_count,
         rule=rule,
         rule_validated_count=(
-            _count_rule_validated(session, rule) if rule is not None else 0
+            _count_rule_validated(session, rule, action) if rule is not None else 0
         ),
     )
+
+
+def _still_as_confirmed() -> list[ColumnElement[bool]]:
+    """Return the conditions of a guided row that is still what its action left.
+
+    The row is validated and linked to an action, and is either manual or
+    still validated by the rule its action created.
+    """
+    owner = aliased(GuidedAction)
+    action_rule_id = (
+        select(owner.rule_id)
+        .where(owner.id == Transaction.guided_action_id)
+        .scalar_subquery()
+    )
+    return [
+        Transaction.status == TransactionStatus.VALIDATED.value,
+        Transaction.guided_action_id.is_not(None),
+        or_(
+            and_(
+                Transaction.origin == ClassificationOrigin.MANUAL.value,
+                Transaction.rule_id.is_(None),
+            ),
+            and_(
+                Transaction.origin == ClassificationOrigin.RULE.value,
+                Transaction.validated_by_rule.is_(True),
+                Transaction.rule_id == action_rule_id,
+            ),
+        ),
+    ]
 
 
 def _return_to_pending(
     session: Session, transaction_ids: Sequence[UUID], action_id: UUID | None
 ) -> int:
-    """Return still-untouched guided rows to pending and unlink them."""
+    """Return still-untouched guided rows to pending, manual, and unlink them."""
     returned = 0
     for start in range(0, len(transaction_ids), _UNDO_CHUNK_SIZE):
         chunk = transaction_ids[start : start + _UNDO_CHUNK_SIZE]
         statement = update(Transaction).where(
-            Transaction.id.in_(chunk),
-            Transaction.status == TransactionStatus.VALIDATED.value,
-            Transaction.origin == ClassificationOrigin.MANUAL.value,
-            Transaction.guided_action_id.is_not(None),
+            Transaction.id.in_(chunk), *_still_as_confirmed()
         )
         if action_id is not None:
             statement = statement.where(Transaction.guided_action_id == action_id)
         result = session.execute(
             statement.values(
                 status=TransactionStatus.PENDING.value,
+                origin=ClassificationOrigin.MANUAL.value,
                 guided_action_id=None,
                 validated_by_rule=False,
                 rule_id=None,
@@ -314,11 +450,7 @@ def undo_guided_rows(session: Session, transaction_ids: Sequence[UUID]) -> UndoO
 
 
 def _undoable_actions() -> list[ColumnElement[bool]]:
-    return [
-        GuidedAction.undone_at.is_(None),
-        Transaction.status == TransactionStatus.VALIDATED.value,
-        Transaction.origin == ClassificationOrigin.MANUAL.value,
-    ]
+    return [GuidedAction.undone_at.is_(None), *_still_as_confirmed()]
 
 
 def count_guided_actions(session: Session) -> int:
@@ -353,11 +485,7 @@ def list_guided_action_rows(
     return list(
         session.execute(
             select(Transaction)
-            .where(
-                Transaction.guided_action_id == action_id,
-                Transaction.status == TransactionStatus.VALIDATED.value,
-                Transaction.origin == ClassificationOrigin.MANUAL.value,
-            )
+            .where(Transaction.guided_action_id == action_id, *_still_as_confirmed())
             .order_by(Transaction.operation_date.desc(), Transaction.id)
             .limit(limit)
         ).scalars()

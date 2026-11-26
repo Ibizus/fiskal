@@ -19,6 +19,7 @@ from fiskal.classification import (
     delete_rule,
     list_guided_action_rows,
     list_guided_actions,
+    preview_group,
     preview_reapply_validated,
     reclassify_pending,
     suggest_from_history,
@@ -138,6 +139,99 @@ def test_confirm_with_rule_creates_owner_rule_with_group_pattern(
     assert outcome.validated_count == ROWS
 
 
+def test_group_rows_are_validated_by_the_created_rule(session: Session) -> None:
+    """With a rule, group rows are rule-validated and stay linked to the action."""
+    account = _account(session)
+    food = _category(session)
+    person = _person(session)
+    rows = _bulk_transactions(session, account=account, description="shop", count=ROWS)
+
+    outcome = confirm_group(
+        session,
+        GroupKey("shop", EXPENSE),
+        _classification(food, person_id=person.id),
+        create_rule=True,
+    )
+
+    assert outcome.rule is not None
+    for row in _refresh(session, rows):
+        assert row.status == TransactionStatus.VALIDATED.value
+        assert row.origin == ClassificationOrigin.RULE.value
+        assert row.rule_id == outcome.rule.id
+        assert row.validated_by_rule
+        assert row.guided_action_id == outcome.action.id
+        assert row.category_id == food.id
+        assert row.person_id == person.id
+    session.refresh(outcome.rule)
+    assert outcome.rule.hit_count == ROWS
+    assert outcome.rule_validated_count == 0
+    reclassify_pending(session)
+    assert {row.person_id for row in _refresh(session, rows)} == {person.id}
+
+
+def test_rule_pattern_must_be_part_of_the_group_description(
+    session: Session,
+) -> None:
+    """A pattern that would not cover the group is refused before writing."""
+    account = _account(session)
+    food = _category(session)
+    rows = _bulk_transactions(session, account=account, description="shop", count=2)
+
+    with pytest.raises(GuidedError, match="part of the group"):
+        confirm_group(
+            session,
+            GroupKey("shop", EXPENSE),
+            _classification(food),
+            create_rule=True,
+            rule_pattern="gym",
+        )
+    with pytest.raises(GuidedError, match="part of the group"):
+        preview_group(
+            session,
+            GroupKey("shop", EXPENSE),
+            set(),
+            create_rule=True,
+            rule_pattern="gym",
+        )
+
+    assert session.scalar(select(func.count()).select_from(Rule)) == 0
+    assert _statuses(_refresh(session, rows)) == {TransactionStatus.PENDING.value}
+
+
+def test_preview_counts_group_and_rule_matches_without_writing(
+    session: Session,
+) -> None:
+    """The preview counts what a confirmation would validate and writes nothing."""
+    account = _account(session)
+    food = _category(session)
+    rows = _bulk_transactions(
+        session, account=account, description="bar central", count=ROWS
+    )
+    _transaction(session, account=account, description="bar central plaza")
+    _transaction(session, account=account, description="bar norte")
+    _transaction(session, account=account, description="bar norte", amount_minor=200)
+    key = GroupKey("bar central", EXPENSE)
+
+    without_rule = preview_group(session, key, set(), create_rule=False)
+    default = preview_group(session, key, set(), create_rule=True)
+    shortened = preview_group(session, key, set(), create_rule=True, rule_pattern="bar")
+
+    assert (without_rule.group_rows, without_rule.other_rows) == (ROWS, 0)
+    assert (default.group_rows, default.other_rows) == (ROWS, 1)
+    assert (shortened.group_rows, shortened.other_rows, shortened.total) == (
+        ROWS,
+        2,
+        ROWS + 2,
+    )
+    assert session.scalar(select(func.count()).select_from(Rule)) == 0
+    assert _statuses(_refresh(session, rows)) == {TransactionStatus.PENDING.value}
+
+    outcome = confirm_group(
+        session, key, _classification(food), create_rule=True, rule_pattern="bar"
+    )
+    assert (outcome.validated_count, outcome.rule_validated_count) == (ROWS, 2)
+
+
 def test_confirm_with_rule_uses_the_edited_pattern(session: Session) -> None:
     """The rule pattern is editable; a blank one falls back to the description."""
     account = _account(session)
@@ -208,10 +302,10 @@ def test_rule_also_validates_other_pending_rows_it_matches(session: Session) -> 
     assert longer.guided_action_id is None
 
 
-def test_group_rows_stay_manual_when_the_rule_is_later_edited(
+def test_group_rows_follow_the_rule_when_it_is_later_edited(
     session: Session,
 ) -> None:
-    """Rows validated in a block keep their classification when the rule changes."""
+    """Rows validated by the group's rule follow later edits of that rule."""
     account = _account(session)
     food = _category(session)
     other = _category(session, key="category.other")
@@ -234,9 +328,12 @@ def test_group_rows_stay_manual_when_the_rule_is_later_edited(
     reclassify_pending(session)
 
     for row in _refresh(session, rows):
-        assert row.category_id == food.id
-        assert row.person_id == person.id
-        assert row.origin == ClassificationOrigin.MANUAL.value
+        assert row.status == TransactionStatus.VALIDATED.value
+        assert row.category_id == other.id
+        assert row.person_id is None
+        assert row.origin == ClassificationOrigin.RULE.value
+        assert row.guided_action_id == outcome.action.id
+    assert count_guided_actions(session) == 1
 
 
 def test_person_on_a_group_is_a_manual_attribution(session: Session) -> None:
@@ -427,9 +524,16 @@ def test_undo_with_rule_deactivates_it_and_releases_its_rows(
     undone = undo_guided_action(session, outcome.action.id)
 
     assert undone.rule_deactivated
+    assert (undone.returned_count, undone.skipped_count) == (ROWS, 0)
     session.refresh(outcome.rule)
     assert not outcome.rule.is_active
-    assert _statuses(_refresh(session, rows)) == {TransactionStatus.PENDING.value}
+    for row in _refresh(session, rows):
+        assert row.status == TransactionStatus.PENDING.value
+        assert row.origin == ClassificationOrigin.MANUAL.value
+        assert row.category_id == food.id
+        assert row.rule_id is None
+        assert not row.validated_by_rule
+        assert row.guided_action_id is None
     (longer,) = _refresh(session, [longer])
     assert longer.status == TransactionStatus.PENDING.value
     assert not longer.validated_by_rule
@@ -566,10 +670,10 @@ def test_list_guided_actions_newest_first_and_hides_finished_ones(
 
 
 def test_deleting_the_rule_of_an_action_clears_the_link(session: Session) -> None:
-    """Deleting a rule keeps the action, which can still be undone."""
+    """Deleting the rule sends the rows it validated back to pending."""
     account = _account(session)
     food = _category(session)
-    _bulk_transactions(session, account=account, description="shop", count=2)
+    rows = _bulk_transactions(session, account=account, description="shop", count=2)
     outcome = confirm_group(
         session, GroupKey("shop", EXPENSE), _classification(food), create_rule=True
     )
@@ -579,8 +683,10 @@ def test_deleting_the_rule_of_an_action_clears_the_link(session: Session) -> Non
 
     session.refresh(outcome.action)
     assert outcome.action.rule_id is None
+    assert _statuses(_refresh(session, rows)) == {TransactionStatus.PENDING.value}
+    assert count_guided_actions(session) == 0
     undone = undo_guided_action(session, outcome.action.id)
-    assert (undone.returned_count, undone.rule_deactivated) == (2, False)
+    assert (undone.returned_count, undone.rule_deactivated) == (0, False)
 
 
 def test_confirm_and_undo_are_committed_even_when_nothing_else_is_pending(

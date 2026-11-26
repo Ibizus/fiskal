@@ -198,17 +198,42 @@ def test_guided_confirm_requires_a_category(isolated_profile: Path) -> None:
     assert _statuses(isolated_profile, "shop") == {TransactionStatus.PENDING.value}
 
 
-def test_guided_group_with_wide_spread_warns_and_defaults_to_no_rule(
+def test_guided_group_with_wide_spread_warns_and_keeps_the_rule_default(
     isolated_profile: Path,
 ) -> None:
-    """Widely differing amounts warn and leave the rule option unchecked."""
+    """Widely differing amounts only warn; the rule option stays checked."""
     _seed(isolated_profile, {("shop", -500): 2, ("shop", -20000): 1})
 
     app = _open_guided()
 
     assert len(app.warning) == 1
     assert "differ widely" in app.warning[0].value
-    assert app.checkbox(key=f"{_shop_key()}_create_rule").value is False
+    assert app.checkbox(key=f"{_shop_key()}_create_rule").value is True
+
+
+def test_guided_affected_count_includes_rows_the_rule_would_validate(
+    isolated_profile: Path,
+) -> None:
+    """Before applying, the count covers the group and the rule's other matches."""
+    _seed(isolated_profile, {("shop", -1000): SHOP_ROWS, ("shop online", -800): 1})
+    base = _shop_key()
+
+    app = _open_guided()
+    captions = [c.value for c in app.caption]
+    assert (
+        "This will classify 5 pending movements: 4 of this group and 1 more that "
+        "the rule also validates." in captions
+    )
+    assert _statuses(isolated_profile, "shop online") == {
+        TransactionStatus.PENDING.value
+    }
+
+    app.checkbox(key=f"{base}_create_rule").uncheck().run()
+    assert "This will classify 4 pending movements." in [c.value for c in app.caption]
+
+    app.checkbox(key=f"{base}_create_rule").check().run()
+    app.text_input(key=f"{base}_pattern").input("nowhere").run()
+    assert any("must be part of the group" in w.value for w in app.warning)
 
 
 def test_guided_group_with_similar_amounts_has_no_warning_and_rule_on(
