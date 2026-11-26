@@ -3,8 +3,8 @@
 Creating, updating or deleting a rule reclassifies only pending transactions;
 validated history never changes on its own. Rules the owner creates validate
 the pending transactions they match, so creating one clears them from the
-queue; ``count_rule_validated`` reports how many a rule has validated. The
-bulk reapply over validated history is a separate, explicit function with a preview.
+queue. The bulk reapply over validated history is a separate, explicit
+function with a preview.
 """
 
 from __future__ import annotations
@@ -387,7 +387,8 @@ def validate_and_create_rule(
 
     The corrected transaction becomes a manual validated classification; the
     new user rule then validates every other pending transaction it matches.
-    ``validated_count`` is the number of those other transactions. The rule
+    ``validated_count`` is the number of those other transactions that were
+    pending before the rule was created. The rule
     input is checked first, so nothing is written when it is invalid.
     """
     spec = _correction_spec(
@@ -408,22 +409,22 @@ def validate_and_create_rule(
         cost_center_id=cost_center_id,
         person_id=person_id,
     )
-    rule = create_rule(session, spec)
-    return CorrectionRuleResult(
-        rule=rule, validated_count=count_rule_validated(session, rule.id)
-    )
-
-
-def count_rule_validated(session: Session, rule_id: UUID) -> int:
-    """Return how many transactions the given rule has validated."""
-    return int(
+    pending_ids = set(
         session.execute(
-            select(func.count())
-            .select_from(Transaction)
-            .where(
-                Transaction.rule_id == rule_id,
-                Transaction.status == TransactionStatus.VALIDATED.value,
-                Transaction.validated_by_rule.is_(True),
+            select(Transaction.id).where(
+                Transaction.status == TransactionStatus.PENDING.value
             )
-        ).scalar_one()
+        ).scalars()
+    )
+    rule = create_rule(session, spec)
+    validated_ids = session.execute(
+        select(Transaction.id).where(
+            Transaction.rule_id == rule.id,
+            Transaction.status == TransactionStatus.VALIDATED.value,
+            Transaction.validated_by_rule.is_(True),
+        )
+    ).scalars()
+    return CorrectionRuleResult(
+        rule=rule,
+        validated_count=sum(1 for txn_id in validated_ids if txn_id in pending_ids),
     )

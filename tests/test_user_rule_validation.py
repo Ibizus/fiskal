@@ -19,6 +19,7 @@ from fiskal.classification import (
     delete_rule,
     list_rule_validated_transactions,
     reclassify_pending,
+    reject_pair,
     return_to_queue,
     suggest_from_history,
     update_rule,
@@ -164,6 +165,45 @@ def test_validate_and_create_rule_counts_other_rows_and_keeps_correction_manual(
         assert txn.rule_id == outcome.rule.id
     session.refresh(unrelated)
     assert unrelated.status == TransactionStatus.PENDING.value
+
+
+def test_validated_count_skips_rows_already_validated_by_another_rule(
+    session: Session,
+) -> None:
+    """Rows another user rule had validated are not counted as cleared."""
+    account = _account(session)
+    food = _category(session, key="category.food")
+    create_rule(session, RuleSpec(**_spec_kwargs(food.id, pattern="market")))
+    already = _transaction(
+        session, account=account, counterparty="Fresh Market", identity="a"
+    )
+    classify_pending(session)
+    session.refresh(already)
+    assert already.validated_by_rule is True
+    first = _transaction(
+        session, account=account, counterparty="Fresh Market", identity="f", day=16
+    )
+    pending = _transaction(
+        session, account=account, counterparty="Fresh Market", identity="p", day=17
+    )
+    pending.category_id = food.id
+    pending.origin = ClassificationOrigin.HISTORY.value
+    session.commit()
+
+    outcome = validate_and_create_rule(
+        session,
+        first.id,
+        transaction_type="expense",
+        category_id=food.id,
+        cost_center_id=None,
+        person_id=None,
+    )
+
+    session.refresh(already)
+    session.refresh(pending)
+    assert already.rule_id == outcome.rule.id
+    assert pending.rule_id == outcome.rule.id
+    assert outcome.validated_count == 1
 
 
 def test_invalid_rule_leaves_correction_unvalidated(session: Session) -> None:
@@ -387,6 +427,40 @@ def test_proposed_transfer_legs_stay_pending(session: Session) -> None:
     assert left.status == TransactionStatus.PENDING.value
     assert left.category_id == misc.id
     confirm_pair(session, left.id, right.id)
+
+
+def test_rejecting_a_pair_validates_the_rule_matched_leg(session: Session) -> None:
+    """Once the proposal is rejected, a user rule validates the held leg."""
+    source = _account(session, name="Source")
+    target = _account(session, name="Target")
+    misc = _category(session, key="category.misc")
+    create_rule(session, RuleSpec(**_spec_kwargs(misc.id, pattern="move")))
+    left = _transaction(
+        session,
+        account=source,
+        description="move money",
+        counterparty="Move",
+        amount_minor=-5000,
+        identity="l",
+    )
+    right = _transaction(
+        session,
+        account=target,
+        description="incoming",
+        counterparty="Other",
+        amount_minor=5000,
+        identity="r",
+    )
+    classify_pending(session)
+
+    reject_pair(session, left.id, right.id)
+
+    session.refresh(left)
+    session.refresh(right)
+    assert left.status == TransactionStatus.VALIDATED.value
+    assert left.validated_by_rule is True
+    assert left.category_id == misc.id
+    assert right.status == TransactionStatus.PENDING.value
 
 
 def test_rule_validated_leg_can_be_paired_later(session: Session) -> None:

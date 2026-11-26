@@ -228,7 +228,11 @@ def confirm_pair(session: Session, left_id: UUID, right_id: UUID) -> None:
 
 
 def reject_pair(session: Session, left_id: UUID, right_id: UUID) -> None:
-    """Remember that the user rejected this proposed pair."""
+    """Remember that the user rejected this proposed pair.
+
+    Both legs are then reclassified, so a user rule that matches a leg the
+    proposal was holding pending validates it.
+    """
     left, right = _require_both_sides(session, left_id, right_id)
     _require_pairable(left, right)
 
@@ -253,6 +257,10 @@ def reject_pair(session: Session, left_id: UUID, right_id: UUID) -> None:
         )
     )
     session.commit()
+
+    from fiskal.classification.engine import reclassify_pending  # noqa: PLC0415
+
+    reclassify_pending(session, [left_id, right_id])
 
 
 def unpair(session: Session, left_id: UUID, right_id: UUID) -> None:
