@@ -249,8 +249,8 @@ loaded, under 5% of a month's transactions reach the manual queue.
    proposal links both sides and marks them as `internal_transfer` so merged
    views do not double count them; rejecting remembers the decision; undoing a
    confirmed pair restores both sides to unclassified/pending. Pairing cannot
-   be confirmed or undone when either side is already validated, and validated
-   transactions are never proposed. Full account numbers are never stored.
+   be confirmed or undone when either side was validated by hand, and
+   hand-validated transactions are never proposed. Full account numbers are never stored.
 3. Deterministic rules by priority: first match assigns type, cost center,
    category and optionally a holder. A match by a rule the owner created also
    validates the transaction automatically (`status` validated, `origin` rule,
@@ -355,8 +355,8 @@ Six Streamlit pages in the core:
    balance-continuity warning and queue size.
 2. **Validate**: pending queue with preselected suggestion; default view merges
    all accounts, with a filter for one or several accounts; inline editing of
-   type, cost center, category, proration period and note; confirm,
-   confirm selected, create rule.
+   type, cost center, category, proration period and note; validate,
+   validate selected, create rule.
 3. **Transactions**: filterable table with editing and manual entries; default
    view merges all accounts, with a filter for one or several accounts.
 4. **Overview**: current month against the 12-month average; default view merges

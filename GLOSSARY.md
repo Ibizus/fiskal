@@ -119,7 +119,8 @@ A transaction that has been imported but not yet confirmed by the user.
 _Avoid_: Unconfirmed, draft.
 
 **Validated**:
-A transaction the user has confirmed or corrected.
+A transaction the user has confirmed or corrected, or that a rule the user
+created validated automatically (_validated by rule_).
 _Avoid_: Approved, committed.
 
 **Closed month**:

@@ -1,7 +1,8 @@
 """Rule CRUD with automatic reclassification of pending transactions.
 
-Creating, updating or deleting a rule reclassifies only pending transactions;
-validated history never changes on its own. Rules the owner creates validate
+Creating, updating or deleting a rule reclassifies pending transactions and
+the transactions a user rule validated automatically; history validated by
+hand never changes on its own. Rules the owner creates validate
 the pending transactions they match, so creating one clears them from the
 queue. The bulk reapply over validated history is a separate, explicit
 function with a preview.
