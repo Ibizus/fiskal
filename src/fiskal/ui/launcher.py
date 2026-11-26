@@ -2,7 +2,8 @@
 
 This module is the entry point for ``streamlit run`` and the ``fiskal``
 console script. It only wires pages together; all business logic lives
-elsewhere.
+elsewhere. The navigation is built explicitly so every entry, including the
+first one, gets a translated and consistently capitalized title.
 """
 
 from __future__ import annotations
@@ -10,19 +11,30 @@ from __future__ import annotations
 import streamlit as st
 
 from fiskal.i18n import translate
+from fiskal.ui.home import WORKING_PAGES, render_home
 
 
 def main() -> None:
-    """Configure the Streamlit application and render the welcome page."""
+    """Configure the Streamlit application and run the page navigation."""
     st.set_page_config(
         page_title=translate("app.title"),
         page_icon="🏦",
         layout="centered",
     )
-
-    st.title(translate("app.title"))
-    st.subheader(translate("app.tagline"))
-    st.write(translate("ui.no_data"))
+    pages = [
+        st.Page(
+            render_home,
+            title=translate("nav.home"),
+            icon="🏠",
+            url_path="home",
+            default=True,
+        ),
+        *(
+            st.Page(path, title=translate(label_key), icon=icon)
+            for path, label_key, icon in WORKING_PAGES
+        ),
+    ]
+    st.navigation(pages).run()
 
 
 if __name__ == "__main__":

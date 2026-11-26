@@ -1,8 +1,11 @@
 """Rule CRUD with automatic reclassification of pending transactions.
 
-Creating, updating or deleting a rule reclassifies only pending transactions;
-validated history never changes on its own. The bulk reapply over validated
-history is a separate, explicit function with a preview.
+Creating, updating or deleting a rule reclassifies pending transactions and
+the transactions a user rule validated automatically; history validated by
+hand never changes on its own. Rules the owner creates validate
+the pending transactions they match, so creating one clears them from the
+queue. The bulk reapply over validated history is a separate, explicit
+function with a preview.
 """
 
 from __future__ import annotations
@@ -18,12 +21,14 @@ from fiskal.classification.engine import (
     rule_to_condition,
     sorted_active_rules,
 )
+from fiskal.classification.validation_service import validate_transaction
 from fiskal.db.models import Category, CostCenter, Person, Rule, Transaction
 from fiskal.domain.enums import (
     CategoryKind,
     ClassificationOrigin,
     RuleMatchMode,
     RuleOrigin,
+    TransactionStatus,
     TransactionType,
 )
 from fiskal.domain.rule_matching import (
@@ -294,6 +299,40 @@ def _top_priority(session: Session) -> int:
     return minimum - 1
 
 
+def _correction_spec(
+    session: Session,
+    transaction_id: UUID,
+    *,
+    transaction_type: TransactionType | str,
+    category_id: UUID,
+    cost_center_id: UUID | None,
+    person_id: UUID | None,
+    pattern: str | None,
+) -> RuleSpec:
+    proposal = propose_rule_from_correction(
+        session,
+        transaction_id,
+        transaction_type=transaction_type,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+    )
+    stripped_pattern = (pattern or "").strip()
+    return RuleSpec(
+        priority=proposal.priority,
+        mode=proposal.mode,
+        pattern=stripped_pattern or proposal.pattern,
+        transaction_type=proposal.transaction_type,
+        category_id=proposal.category_id,
+        cost_center_id=proposal.cost_center_id,
+        person_id=person_id,
+        amount_min_minor=None,
+        amount_max_minor=None,
+        day_of_month_min=None,
+        day_of_month_max=None,
+        is_active=True,
+    )
+
+
 def create_rule_from_correction(
     session: Session,
     transaction_id: UUID,
@@ -311,30 +350,82 @@ def create_rule_from_correction(
     this before validating the correction so the proposal can be placed one
     step above the rule that originally classified the transaction; after
     validation the transaction has no rule link, so the rule is placed above
-    every existing rule instead.
+    every existing rule instead. The corrected transaction itself matches the
+    new rule, so it is validated by it; ``validate_and_create_rule`` is the
+    variant that keeps the correction manual.
     """
-    proposal = propose_rule_from_correction(
+    spec = _correction_spec(
         session,
         transaction_id,
         transaction_type=transaction_type,
         category_id=category_id,
         cost_center_id=cost_center_id,
+        person_id=person_id,
+        pattern=pattern,
     )
-    stripped_pattern = (pattern or "").strip()
-    return create_rule(
+    return create_rule(session, spec)
+
+
+@dataclass(frozen=True)
+class CorrectionRuleResult:
+    """Outcome of validating a correction and creating a rule from it."""
+
+    rule: Rule
+    validated_count: int
+
+
+def validate_and_create_rule(
+    session: Session,
+    transaction_id: UUID,
+    *,
+    transaction_type: TransactionType | str,
+    category_id: UUID,
+    cost_center_id: UUID | None,
+    person_id: UUID | None,
+    pattern: str | None = None,
+) -> CorrectionRuleResult:
+    """Validate a correction by hand, then create a rule from it.
+
+    The corrected transaction becomes a manual validated classification; the
+    new user rule then validates every other pending transaction it matches.
+    ``validated_count`` is the number of those other transactions that were
+    pending before the rule was created. The rule
+    input is checked first, so nothing is written when it is invalid.
+    """
+    spec = _correction_spec(
         session,
-        RuleSpec(
-            priority=proposal.priority,
-            mode=proposal.mode,
-            pattern=stripped_pattern or proposal.pattern,
-            transaction_type=proposal.transaction_type,
-            category_id=proposal.category_id,
-            cost_center_id=proposal.cost_center_id,
-            person_id=person_id,
-            amount_min_minor=None,
-            amount_max_minor=None,
-            day_of_month_min=None,
-            day_of_month_max=None,
-            is_active=True,
-        ),
+        transaction_id,
+        transaction_type=transaction_type,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+        person_id=person_id,
+        pattern=pattern,
+    )
+    _validate_rule_input(session, spec)
+    validate_transaction(
+        session,
+        transaction_id,
+        transaction_type=transaction_type,
+        category_id=category_id,
+        cost_center_id=cost_center_id,
+        person_id=person_id,
+    )
+    pending_ids = set(
+        session.execute(
+            select(Transaction.id).where(
+                Transaction.status == TransactionStatus.PENDING.value
+            )
+        ).scalars()
+    )
+    rule = create_rule(session, spec)
+    validated_ids = session.execute(
+        select(Transaction.id).where(
+            Transaction.rule_id == rule.id,
+            Transaction.status == TransactionStatus.VALIDATED.value,
+            Transaction.validated_by_rule.is_(True),
+        )
+    ).scalars()
+    return CorrectionRuleResult(
+        rule=rule,
+        validated_count=sum(1 for txn_id in validated_ids if txn_id in pending_ids),
     )

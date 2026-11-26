@@ -4,6 +4,11 @@ The queue shows every pending, unpaired transaction that still needs a
 category. Confirming or correcting one marks it manual and validated, which
 makes it stable under later reclassification and feeds the validated-history
 suggestions used by the next import.
+
+Rows that a rule created by the owner validated automatically (flagged
+``validated_by_rule``) are not in the queue. The owner can still correct one with
+``validate_transaction``, which turns it into a manual classification, or send
+it back to the queue with ``return_to_queue``.
 """
 
 from __future__ import annotations
@@ -65,6 +70,44 @@ def _required_category_kind(transaction_type: TransactionType) -> CategoryKind:
     return CategoryKind.EXPENSE
 
 
+def _is_rule_validated(txn: Transaction) -> bool:
+    return txn.status == TransactionStatus.VALIDATED.value and txn.validated_by_rule
+
+
+def list_rule_validated_transactions(session: Session) -> list[Transaction]:
+    """Return transactions that a rule validated automatically, newest first."""
+    return list(
+        session.execute(
+            select(Transaction)
+            .where(
+                Transaction.status == TransactionStatus.VALIDATED.value,
+                Transaction.validated_by_rule.is_(True),
+            )
+            .order_by(Transaction.operation_date.desc(), Transaction.id.desc())
+        ).scalars()
+    )
+
+
+def return_to_queue(session: Session, transaction_id: UUID) -> Transaction:
+    """Send a rule-validated transaction back to the pending queue.
+
+    The row keeps its classification as a preselection but becomes manual, so
+    no rule validates it again and the owner's next decision is final. Rows the
+    owner validated by hand are refused.
+    """
+    txn = session.get(Transaction, transaction_id)
+    if txn is None:
+        raise ValidationError("transaction not found")
+    if not _is_rule_validated(txn):
+        raise ValidationError("only rule-validated transactions can be sent back")
+    txn.origin = ClassificationOrigin.MANUAL.value
+    txn.rule_id = None
+    txn.validated_by_rule = False
+    txn.status = TransactionStatus.PENDING.value
+    session.commit()
+    return txn
+
+
 def validate_transaction(
     session: Session,
     transaction_id: UUID,
@@ -79,7 +122,8 @@ def validate_transaction(
     The classification becomes manual so later reclassification never changes
     it, and the row starts feeding validated-history suggestions. Setting a
     person by hand also flips the origin to manual, so reclassification cannot
-    clear the person as rule-owned.
+    clear the person as rule-owned. A row that a user rule validated
+    automatically can be corrected the same way and then sticks as manual.
     """
     type_enum = _coerce_type(transaction_type)
     required_kind = _required_category_kind(type_enum)
@@ -87,7 +131,7 @@ def validate_transaction(
     txn = session.get(Transaction, transaction_id)
     if txn is None:
         raise ValidationError("transaction not found")
-    if txn.status == TransactionStatus.VALIDATED.value:
+    if txn.status == TransactionStatus.VALIDATED.value and not _is_rule_validated(txn):
         raise ValidationError("transaction is already validated")
     if txn.paired_transaction_id is not None:
         raise ValidationError("cannot validate an internal transfer")
@@ -120,6 +164,7 @@ def validate_transaction(
     txn.person_id = person_id
     txn.origin = ClassificationOrigin.MANUAL.value
     txn.rule_id = None
+    txn.validated_by_rule = False
     txn.status = TransactionStatus.VALIDATED.value
     session.commit()
     return txn

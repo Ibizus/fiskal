@@ -22,6 +22,7 @@ from fiskal.services import (
     list_imports,
     list_persons,
 )
+from fiskal.ui.messages import flash, show_flashes
 from fiskal.ui.session import open_session
 
 _ALLOWED_TYPES = ["xls", "html", "htm"]
@@ -45,6 +46,7 @@ def _import_label(import_row: object) -> str:
 
 def _render_summary(summary: ImportSummary) -> None:
     st.subheader(translate("import.summary_title"))
+    st.success(translate("import.success").format(new=summary.new_count))
     if summary.first_transaction_date is not None:
         st.write(f"{translate('import.first_date')}: {summary.first_transaction_date}")
     if summary.last_transaction_date is not None:
@@ -54,6 +56,7 @@ def _render_summary(summary: ImportSummary) -> None:
     st.write(f"{translate('import.duplicate')}: {summary.duplicate_count}")
     st.write(f"{translate('import.truncated')}: {summary.truncated_count}")
     st.write(f"{translate('import.classified_rule')}: {summary.classified_by_rule}")
+    st.write(f"{translate('import.validated_rule')}: {summary.validated_by_rule}")
     st.write(
         f"{translate('import.classified_history')}: {summary.classified_by_history}"
     )
@@ -81,10 +84,11 @@ def _render_new_holder(session: Session) -> None:
     if not submitted:
         return
     try:
-        create_person(session, holder_name)
+        person = create_person(session, holder_name)
     except AccountCreationError as exc:
         st.error(str(exc))
         return
+    flash("success", translate("account.holder_created").format(name=person.name))
     st.rerun()
 
 
@@ -113,7 +117,7 @@ def _render_new_account(session: Session) -> None:
     if not submitted:
         return
     try:
-        create_account(
+        account = create_account(
             session,
             name=name,
             currency_code=currency_code,
@@ -123,6 +127,7 @@ def _render_new_account(session: Session) -> None:
     except AccountCreationError as exc:
         st.error(str(exc))
         return
+    flash("success", translate("account.created").format(name=account.name))
     st.rerun()
 
 
@@ -169,8 +174,6 @@ def _render_import(session: Session) -> None:
 
 
 def _render_revert(session: Session) -> None:
-    if st.session_state.pop("import_reverted", False):
-        st.success(translate("import.revert_success"))
     imports = list_imports(session)
     if not imports:
         return
@@ -189,7 +192,7 @@ def _render_revert(session: Session) -> None:
             st.error(f"{translate('import.revert_error')} {exc}")
             return
         st.session_state.pop("import_summary", None)
-        st.session_state["import_reverted"] = True
+        flash("success", translate("import.revert_success"))
         st.rerun()
 
 
@@ -197,6 +200,7 @@ def main() -> None:
     """Render the import page."""
     st.set_page_config(page_title=translate("nav.import"), page_icon="📥")
     st.header(translate("nav.import"))
+    show_flashes()
     with open_session() as session:
         _render_import(session)
         _render_revert(session)

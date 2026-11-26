@@ -54,6 +54,7 @@ class TransactionFilter:
     account_id: UUID | None = None
     transaction_type: str | None = None
     status: str | None = None
+    validated_by_rule: bool | None = None
     query: str | None = None
 
 
@@ -78,6 +79,10 @@ def list_transactions(
         )
     if filters.status is not None:
         statement = statement.where(Transaction.status == filters.status)
+    if filters.validated_by_rule is not None:
+        statement = statement.where(
+            Transaction.validated_by_rule.is_(filters.validated_by_rule)
+        )
     if filters.query:
         needle = f"%{filters.query.strip().lower()}%"
         statement = statement.where(

@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import select
 from streamlit.testing.v1 import AppTest
 
-from fiskal.classification import seed_neutral_data
+from fiskal.classification import RuleSpec, create_rule, seed_neutral_data
 from fiskal.db.models import Account, AccountHolder, Import, Rule, Transaction
 from fiskal.db.session import build_session_factory
 from fiskal.domain.enums import CategoryKind, TransactionStatus, TransactionType
@@ -37,18 +37,45 @@ def isolated_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     _session_factory.clear()
 
 
-def test_welcome_page_renders() -> None:
-    """The welcome page runs without exceptions and shows the expected content."""
+def test_home_page_renders_empty_profile(isolated_profile: Path) -> None:
+    """Home shows no pending movements and no import for a fresh profile."""
     app = AppTest.from_file(str(LAUNCHER)).run()
 
     assert not app.exception, f"App raised an exception: {app.exception}"
+    assert "Home" in [h.value for h in app.header]
+    metrics = {m.label: m.value for m in app.metric}
+    assert metrics == {
+        "Pending movements": "0",
+        "Last import": "No statement imported yet",
+    }
 
-    titles = [t.value for t in app.title]
-    assert "Fiskal" in titles, f"Expected 'Fiskal' title, got {titles}"
 
-    subheaders = [s.value for s in app.subheader]
-    tagline_msg = f"Expected tagline, got {subheaders}"
-    assert "Local-first personal finance" in subheaders, tagline_msg
+def test_home_page_shows_pending_count_and_last_import(
+    isolated_profile: Path,
+) -> None:
+    """Home shows the pending queue size and the date of the newest import."""
+    _seed_pending(isolated_profile, [-1000, -2000])
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        account = session.execute(select(Account)).scalar_one()
+        session.add(Import(account_id=account.id, file_name="a.xls", file_hash="h"))
+        session.commit()
+
+    app = AppTest.from_file(str(LAUNCHER)).run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    metrics = {m.label: m.value for m in app.metric}
+    assert metrics["Pending movements"] == "2"
+    assert metrics["Last import"] == f"{date.today():%Y-%m-%d}"
+
+
+def test_home_page_links_to_working_pages(isolated_profile: Path) -> None:
+    """Home links to Import, Validate and Transactions."""
+    app = AppTest.from_file(str(LAUNCHER)).run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    labels = [link.label for link in app.get("page_link")]
+    assert labels == ["Import", "Validate", "Transactions"]
 
 
 def test_import_page_renders(isolated_profile: Path) -> None:
@@ -203,6 +230,7 @@ def test_import_page_creates_account_with_holder(isolated_profile: Path) -> None
     app.text_input(key="new_holder_name").input("Ada")
     app.button(key="new_holder_submit").click().run()
     assert not app.exception, f"App raised an exception: {app.exception}"
+    assert 'Holder "Ada" added.' in [s.value for s in app.success]
 
     app.text_input(key="new_account_name").input("Checking")
     app.text_input(key="new_account_hint").input("0042")
@@ -211,6 +239,7 @@ def test_import_page_creates_account_with_holder(isolated_profile: Path) -> None
 
     assert not app.exception, f"App raised an exception: {app.exception}"
     assert app.selectbox(key="import_account").value.name == "Checking"
+    assert 'Account "Checking" created.' in [s.value for s in app.success]
     factory = build_session_factory(_profile_url(isolated_profile))
     with factory() as session:
         account = session.execute(select(Account)).scalar_one()
@@ -241,7 +270,7 @@ def test_validate_confirm_requires_category(isolated_profile: Path) -> None:
 
     app = AppTest.from_file(str(PAGES_DIR / "2_Validate.py")).run()
     assert app.selectbox(key=f"validate_{txn_id}_category").value is None
-    app.button(key=f"validate_{txn_id}_confirm").click().run()
+    app.button(key=f"validate_{txn_id}_submit").click().run()
 
     assert not app.exception, f"App raised an exception: {app.exception}"
     assert [error.value for error in app.error] == [
@@ -260,7 +289,7 @@ def test_validate_rule_with_incompatible_category_shows_error(
     app = AppTest.from_file(str(PAGES_DIR / "2_Validate.py")).run()
     app.selectbox(key=f"validate_{txn_id}_category").select_index(expense_index)
     app.checkbox(key=f"validate_{txn_id}_create_rule").check()
-    app.button(key=f"validate_{txn_id}_confirm").click().run()
+    app.button(key=f"validate_{txn_id}_submit").click().run()
 
     assert not app.exception, f"App raised an exception: {app.exception}"
     assert app.error
@@ -277,7 +306,7 @@ def test_validate_rule_uses_edited_pattern(isolated_profile: Path) -> None:
     app.selectbox(key=f"validate_{txn_id}_category").select_index(expense_index)
     app.checkbox(key=f"validate_{txn_id}_create_rule").check()
     app.text_input(key=f"validate_{txn_id}_pattern").input("custom pattern")
-    app.button(key=f"validate_{txn_id}_confirm").click().run()
+    app.button(key=f"validate_{txn_id}_submit").click().run()
 
     assert not app.exception, f"App raised an exception: {app.exception}"
     new_rules = [r for r in _rules(isolated_profile) if r.id not in seeded_rule_ids]
@@ -394,3 +423,119 @@ def test_import_revert_shows_success_message(isolated_profile: Path) -> None:
     assert "Import reverted." in [s.value for s in app.success]
     with factory() as session:
         assert session.execute(select(Import)).first() is None
+
+
+def test_import_page_reports_empty_holder(isolated_profile: Path) -> None:
+    """An empty holder name shows an error and no success message."""
+    app = AppTest.from_file(str(PAGES_DIR / "1_Import.py")).run()
+    app.button(key="new_holder_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert [e.value for e in app.error] == ["the holder name is required"]
+    assert not app.success
+
+
+def test_validate_has_one_submit_button_with_help(isolated_profile: Path) -> None:
+    """Each queue row has a single, explained Validate button."""
+    (txn_id,) = _seed_pending(isolated_profile, [-1000])
+
+    app = AppTest.from_file(str(PAGES_DIR / "2_Validate.py")).run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    buttons = [b for b in app.button if b.key and b.key.startswith("validate_")]
+    assert [(b.key, b.label) for b in buttons] == [
+        (f"validate_{txn_id}_submit", "Validate")
+    ]
+    assert "validated with the type" in buttons[0].help
+
+
+def test_validate_success_message_survives_the_rerun(isolated_profile: Path) -> None:
+    """Validating a movement shows a confirmation on the page that follows."""
+    (txn_id,) = _seed_pending(isolated_profile, [-1000])
+    expense_index = _category_index(isolated_profile, CategoryKind.EXPENSE)
+
+    app = AppTest.from_file(str(PAGES_DIR / "2_Validate.py")).run()
+    app.selectbox(key=f"validate_{txn_id}_category").select_index(expense_index)
+    app.button(key=f"validate_{txn_id}_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert [s.value for s in app.success] == ["Movement validated."]
+    assert _stored(isolated_profile, txn_id).status == TransactionStatus.VALIDATED.value
+    app.run()
+    assert not app.success, "the message is shown once"
+
+
+def test_validate_rule_validates_every_matching_pending_row(
+    isolated_profile: Path,
+) -> None:
+    """Creating a rule clears all matching rows and says how many it handled."""
+    ids = _seed_pending(isolated_profile, [-1000, -1100, -1200])
+    expense_index = _category_index(isolated_profile, CategoryKind.EXPENSE)
+
+    app = AppTest.from_file(str(PAGES_DIR / "2_Validate.py")).run()
+    app.selectbox(key=f"validate_{ids[0]}_category").select_index(expense_index)
+    app.checkbox(key=f"validate_{ids[0]}_create_rule").check()
+    app.button(key=f"validate_{ids[0]}_submit").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert [s.value for s in app.success] == [
+        "Movement validated.",
+        "Rule created. It classified and validated 2 other pending movements.",
+    ]
+    for txn_id in ids:
+        stored = _stored(isolated_profile, txn_id)
+        assert stored.status == TransactionStatus.VALIDATED.value
+    assert not [
+        sb for sb in app.selectbox if sb.key and sb.key.endswith("_category")
+    ], "the queue is empty"
+
+
+def _seed_rule_validated(profile: Path) -> UUID:
+    """Create one pending movement and validate it through a user rule."""
+    (txn_id,) = _seed_pending(profile, [-1000])
+    factory = build_session_factory(_profile_url(profile))
+    with factory() as session:
+        expense = next(
+            c for c in list_categories(session) if c.kind == CategoryKind.EXPENSE.value
+        )
+        create_rule(
+            session,
+            RuleSpec(
+                priority=0,
+                mode="contains",
+                pattern="synthetic party",
+                transaction_type="expense",
+                category_id=expense.id,
+                cost_center_id=None,
+                person_id=None,
+                amount_min_minor=None,
+                amount_max_minor=None,
+                day_of_month_min=None,
+                day_of_month_max=None,
+                is_active=True,
+            ),
+        )
+    return txn_id
+
+
+def test_transactions_filter_shows_rule_validated_and_sends_back(
+    isolated_profile: Path,
+) -> None:
+    """The rule-validated filter lists the rows and can return one to the queue."""
+    txn_id = _seed_rule_validated(isolated_profile)
+    assert _stored(isolated_profile, txn_id).validated_by_rule is True
+
+    app = AppTest.from_file(str(PAGES_DIR / "3_Transactions.py")).run()
+    app.selectbox(key="transactions_status").select("validated_by_rule").run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert len(app.dataframe) == 1
+    assert app.dataframe[0].value["Status"].tolist() == ["Validated by rule"]
+
+    app.button(key="transactions_send_back_button").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert "Movement sent back to the Validate queue." in [s.value for s in app.success]
+    stored = _stored(isolated_profile, txn_id)
+    assert stored.status == TransactionStatus.PENDING.value
+    assert stored.validated_by_rule is False

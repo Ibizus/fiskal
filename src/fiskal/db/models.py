@@ -22,6 +22,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -293,6 +294,12 @@ class Transaction(Base):
     holds (imports store a placeholder). Classification code must key off
     ``category_id``, never off ``origin``.
 
+    ``validated_by_rule`` marks a transaction that a rule created by the owner
+    validated automatically (``status`` validated, ``origin`` rule). It is the
+    audit marker that separates those rows from ones the owner validated by
+    hand: only marked rows follow later rule changes, and only they can be sent
+    back to the queue. A manual validation or correction clears it.
+
     ``person_id`` optionally attributes the transaction to a holder. It is
     only used for income reporting at first, has no default from the account's
     holders, and a ``NULL`` value means the transaction is not personal.
@@ -330,6 +337,9 @@ class Transaction(Base):
     proration_end_date: Mapped[date | None] = mapped_column(Date)
     note: Mapped[str | None] = mapped_column(String(1000))
     is_manual: Mapped[bool] = mapped_column(Boolean, default=False)
+    validated_by_rule: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
     identity_key: Mapped[str] = mapped_column(String(255))
     paired_transaction_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("transactions.id"),

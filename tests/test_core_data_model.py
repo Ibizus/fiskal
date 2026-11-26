@@ -453,14 +453,15 @@ def test_downgrade_with_pairing_data_is_refused(tmp_path: Path, seed: Any) -> No
     session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
     seed(session)
     session.close()
+    _run_alembic(db_path, "downgrade", "a3f8c2e6b1d4")
+    tables_before = _table_names(db_path)
 
     result = _run_alembic(db_path, "downgrade", "-1", check=False)
 
     assert result.returncode != 0
     assert _table_names(db_path) == tables_before
     current = _run_alembic(db_path, "current")
-    assert "a3f8c2e6b1d4 (head)" in current.stdout
-    _run_alembic(db_path, "check")
+    assert "a3f8c2e6b1d4" in current.stdout
 
 
 def _raw_pairing_seed(db_path: Path, *, kind: str) -> None:
@@ -585,14 +586,15 @@ def test_holders_downgrade_with_data_is_refused(tmp_path: Path, seed: Any) -> No
     session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
     seed(session)
     session.close()
+    _run_alembic(db_path, "downgrade", "a3f8c2e6b1d4")
+    tables_before = _table_names(db_path)
 
     result = _run_alembic(db_path, "downgrade", "-1", check=False)
 
     assert result.returncode != 0
     assert _table_names(db_path) == tables_before
     current = _run_alembic(db_path, "current")
-    assert "a3f8c2e6b1d4 (head)" in current.stdout
-    _run_alembic(db_path, "check")
+    assert "a3f8c2e6b1d4" in current.stdout
 
 
 @pytest.mark.parametrize(
@@ -717,7 +719,7 @@ def test_upgrade_populated_profile_from_previous_revision(tmp_path: Path) -> Non
     _run_alembic(db_path, "upgrade", "head")
 
     current = _run_alembic(db_path, "current")
-    assert "a3f8c2e6b1d4 (head)" in current.stdout
+    assert "b7d4e1f20a93 (head)" in current.stdout
     _run_alembic(db_path, "check")
     with make_engine(f"sqlite:///{db_path}").connect() as connection:
         rule_category = connection.exec_driver_sql(
@@ -729,3 +731,34 @@ def test_upgrade_populated_profile_from_previous_revision(tmp_path: Path) -> Non
         assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
     assert rule_category == category_id
     assert txn_rule == rule_id
+
+
+def test_downgrade_with_rule_validated_rows_is_refused(tmp_path: Path) -> None:
+    """The validated-by-rule marker cannot be dropped while rows carry it."""
+    db_path = tmp_path / "marked.db"
+    _run_alembic(db_path, "upgrade", "head")
+    session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
+    account = _make_account(session)
+    txn = _make_transaction(session, account=account, identity_key="marked")
+    txn.validated_by_rule = True
+    session.commit()
+    session.close()
+
+    result = _run_alembic(db_path, "downgrade", "-1", check=False)
+
+    assert result.returncode != 0
+    assert "validated-by-rule marker" in result.stderr
+    assert "b7d4e1f20a93 (head)" in _run_alembic(db_path, "current").stdout
+    _run_alembic(db_path, "check")
+
+
+def test_downgrade_without_rule_validated_rows_drops_marker(tmp_path: Path) -> None:
+    """With no marked rows the marker column is dropped and re-added cleanly."""
+    db_path = tmp_path / "unmarked.db"
+    _run_alembic(db_path, "upgrade", "head")
+
+    _run_alembic(db_path, "downgrade", "-1")
+    _run_alembic(db_path, "upgrade", "head")
+
+    assert "b7d4e1f20a93 (head)" in _run_alembic(db_path, "current").stdout
+    _run_alembic(db_path, "check")
