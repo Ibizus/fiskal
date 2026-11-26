@@ -61,6 +61,7 @@ def test_seed_does_not_duplicate_edited_seed_rule(session: Session) -> None:
             category_id=salary.category_id,
             amount_min_minor=1,
             cost_center_id=None,
+            person_id=None,
             amount_max_minor=None,
             day_of_month_min=None,
             day_of_month_max=None,
@@ -123,6 +124,43 @@ def test_seed_income_rules_do_not_match_outgoing_payments(session: Session) -> N
     assert payroll_fee.category_id is None
     assert incoming.transaction_type == TransactionType.INCOME.value
     assert incoming.origin == ClassificationOrigin.RULE.value
+
+
+def test_seed_splits_income_categories_with_sources(session: Session) -> None:
+    """The neutral seed installs work, benefit and rental income categories."""
+    seed_neutral_data(session)
+
+    income_categories = (
+        session.query(Category)
+        .filter(Category.kind == "income")
+        .order_by(Category.name_key)
+        .all()
+    )
+    by_key = {category.name_key: category for category in income_categories}
+
+    assert set(by_key) == {
+        "category.income.work",
+        "category.income.benefit",
+        "category.income.rental",
+    }
+    assert by_key["category.income.work"].income_source == "work"
+    assert by_key["category.income.benefit"].income_source == "benefit"
+    assert by_key["category.income.rental"].income_source == "rental"
+
+
+def test_seed_income_rules_point_at_work_income(session: Session) -> None:
+    """Salary and payroll seed rules classify to the work income category."""
+    seed_neutral_data(session)
+    account = _account(session)
+    txn = _transaction(
+        session, account=account, description="monthly salary", amount_minor=2000
+    )
+
+    classify_pending(session)
+
+    session.refresh(txn)
+    work = session.query(Category).filter_by(name_key="category.income.work").one()
+    assert txn.category_id == work.id
 
 
 def test_seed_withdrawal_rule_does_not_match_positive_reversal(

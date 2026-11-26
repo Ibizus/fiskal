@@ -22,9 +22,11 @@ from fiskal.db.base import Base
 from fiskal.db.engine import make_engine
 from fiskal.db.models import (
     Account,
+    AccountHolder,
     Category,
     CostCenter,
     Import,
+    Person,
     RejectedPair,
     Rule,
     Transaction,
@@ -381,8 +383,35 @@ def _seed_rejected_pair(session: Session) -> None:
     session.commit()
 
 
-def _seed_rule(session: Session) -> None:
+def _seed_person(session: Session) -> None:
+    session.add(Person(name="Holder"))
+    session.commit()
+
+
+def _seed_account_holder(session: Session) -> None:
+    account = _make_account(session)
+    person = Person(name="Holder")
+    session.add(person)
+    session.commit()
+    session.add(AccountHolder(account_id=account.id, person_id=person.id))
+    session.commit()
+
+
+def _seed_attributed_transaction(session: Session) -> None:
+    account = _make_account(session)
+    person = Person(name="Holder")
+    session.add(person)
+    session.commit()
+    txn = _make_transaction(session, account=account, identity_key="attributed")
+    txn.person_id = person.id
+    session.commit()
+
+
+def _seed_person_rule(session: Session) -> None:
     category = _make_category(session)
+    person = Person(name="Holder")
+    session.add(person)
+    session.commit()
     session.add(
         Rule(
             priority=1,
@@ -391,6 +420,19 @@ def _seed_rule(session: Session) -> None:
             transaction_type="expense",
             category_id=category.id,
             origin="user",
+            person_id=person.id,
+        )
+    )
+    session.commit()
+
+
+def _seed_income_source_category(session: Session) -> None:
+    session.add(
+        Category(
+            name_key="category.income.work",
+            kind="income",
+            nature="variable",
+            income_source="work",
         )
     )
     session.commit()
@@ -404,7 +446,7 @@ def _seed_rule(session: Session) -> None:
     ],
 )
 def test_downgrade_with_pairing_data_is_refused(tmp_path: Path, seed: Any) -> None:
-    """Dropping the rules column rebuilds transactions, so pairing data blocks it."""
+    """Dropping the person column rebuilds transactions, so pairing data blocks it."""
     db_path = tmp_path / "populated.db"
     _run_alembic(db_path, "upgrade", "head")
     tables_before = _table_names(db_path)
@@ -417,7 +459,7 @@ def test_downgrade_with_pairing_data_is_refused(tmp_path: Path, seed: Any) -> No
     assert result.returncode != 0
     assert _table_names(db_path) == tables_before
     current = _run_alembic(db_path, "current")
-    assert "dfcac1b70385 (head)" in current.stdout
+    assert "a3f8c2e6b1d4 (head)" in current.stdout
     _run_alembic(db_path, "check")
 
 
@@ -486,14 +528,35 @@ def test_pairing_downgrade_with_pairing_data_is_refused(
     assert "694949b009bf" in current.stdout
 
 
+def _raw_rule_seed(db_path: Path) -> None:
+    """Seed a rule with raw SQL so the absent holders columns stay out of it."""
+    engine = make_engine(f"sqlite:///{db_path}")
+    category_id = uuid4().hex
+    rule_id = uuid4().hex
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO categories (id, name_key, custom_name, kind, nature, "
+            "default_proration_months, is_active) VALUES (?, 'category.misc', "
+            "NULL, 'expense', 'variable', NULL, 1)",
+            (category_id,),
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO rules (id, priority, mode, pattern, amount_min_minor, "
+            "amount_max_minor, day_of_month_min, day_of_month_max, "
+            "transaction_type, cost_center_id, category_id, is_active, origin, "
+            "hit_count, last_hit_at) VALUES (?, 1, 'contains', 'test', NULL, "
+            "NULL, NULL, NULL, 'expense', NULL, ?, 1, 'user', 0, NULL)",
+            (rule_id, category_id),
+        )
+
+
 def test_rules_downgrade_with_rules_is_refused(tmp_path: Path) -> None:
     """Downgrading the rules table on a populated database is refused."""
     db_path = tmp_path / "populated.db"
     _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "downgrade", "dfcac1b70385")
+    _raw_rule_seed(db_path)
     tables_before = _table_names(db_path)
-    session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
-    _seed_rule(session)
-    session.close()
 
     result = _run_alembic(db_path, "downgrade", "-1", check=False)
 
@@ -501,7 +564,34 @@ def test_rules_downgrade_with_rules_is_refused(tmp_path: Path) -> None:
     assert "rules" in result.stderr
     assert _table_names(db_path) == tables_before
     current = _run_alembic(db_path, "current")
-    assert "dfcac1b70385 (head)" in current.stdout
+    assert "dfcac1b70385" in current.stdout
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [
+        _seed_person,
+        _seed_account_holder,
+        _seed_attributed_transaction,
+        _seed_person_rule,
+        _seed_income_source_category,
+    ],
+)
+def test_holders_downgrade_with_data_is_refused(tmp_path: Path, seed: Any) -> None:
+    """Downgrading the holders migration on a populated database is refused."""
+    db_path = tmp_path / "populated.db"
+    _run_alembic(db_path, "upgrade", "head")
+    tables_before = _table_names(db_path)
+    session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
+    seed(session)
+    session.close()
+
+    result = _run_alembic(db_path, "downgrade", "-1", check=False)
+
+    assert result.returncode != 0
+    assert _table_names(db_path) == tables_before
+    current = _run_alembic(db_path, "current")
+    assert "a3f8c2e6b1d4 (head)" in current.stdout
     _run_alembic(db_path, "check")
 
 

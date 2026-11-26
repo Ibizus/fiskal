@@ -28,6 +28,13 @@ The last four digits of an account code, stored to help recognize the account on
 later imports. Full account numbers and IBANs are never stored.
 _Avoid_: Account number, IBAN.
 
+**Holder (person)**:
+A lightweight entity for a person who owns accounts. An account has one or more
+holders. A transaction can optionally be attributed to a holder; income reports
+group by that attribution, and a transaction with no attribution is not
+personal. Holders are never seeded; each profile creates its own.
+_Avoid_: User, member.
+
 ## Classification
 
 **Cost center**:
@@ -38,6 +45,12 @@ _Avoid_: Budget, envelope, project.
 **Category**:
 The answer to "what is this?", such as groceries, utilities or salary.
 _Avoid_: Tag, label.
+
+**Income source**:
+An optional attribute on an income category: work, benefit, rental or other.
+Work and benefit together are labor income; labor plus rental is earned income.
+Other marks gifts and one-off inflows, which count in the cash balance but not
+in earned income.
 
 **Transaction type**:
 The effect of a transaction on the books. One of five kinds:
@@ -133,6 +146,25 @@ _Avoid_: Accrual view, smoothed view.
 A periodic payment the detector identifies by its repeating counterparty,
 interval and amount.
 _Avoid_: Subscription, periodic expense.
+
+**Earned income**:
+Work plus benefits plus rental income.
+_Avoid_: Net income, take-home pay.
+
+**Labor income**:
+Work plus benefits income.
+_Avoid_: Salary.
+
+**Rental income**:
+Income from renting out property, reported separately from labor income.
+
+**Other inflows**:
+Gifts and one-off inflows, shown separately from earned income. They count in
+the cash balance but not in earned income.
+
+**Attributed / unattributed**:
+A transaction attributed to a holder is personal; one with no attribution is
+not personal (for example shared rental income or gifts).
 
 **Recurring template**:
 A manually configured pattern that generates a transaction on the same day each

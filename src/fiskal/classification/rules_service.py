@@ -18,7 +18,7 @@ from fiskal.classification.engine import (
     rule_to_condition,
     sorted_active_rules,
 )
-from fiskal.db.models import Category, CostCenter, Rule, Transaction
+from fiskal.db.models import Category, CostCenter, Person, Rule, Transaction
 from fiskal.domain.enums import (
     CategoryKind,
     ClassificationOrigin,
@@ -66,6 +66,7 @@ class RuleSpec:
     transaction_type: TransactionType | str
     category_id: UUID
     cost_center_id: UUID | None
+    person_id: UUID | None
     amount_min_minor: int | None
     amount_max_minor: int | None
     day_of_month_min: int | None
@@ -139,6 +140,11 @@ def _validate_rule_input(
         if not cost_center.is_active:
             raise RuleValidationError("the rule cost center is inactive")
 
+    if spec.person_id is not None:
+        person = session.get(Person, spec.person_id)
+        if person is None:
+            raise RuleValidationError("the rule person does not exist")
+
     return mode_enum, type_enum, stripped_pattern
 
 
@@ -160,6 +166,7 @@ def create_rule(session: Session, spec: RuleSpec) -> Rule:
         transaction_type=type_enum.value,
         category_id=spec.category_id,
         cost_center_id=spec.cost_center_id,
+        person_id=spec.person_id,
         is_active=spec.is_active,
         origin=RuleOrigin.USER.value,
     )
@@ -189,6 +196,7 @@ def update_rule(session: Session, rule_id: UUID, spec: RuleSpec) -> Rule:
     rule.transaction_type = type_enum.value
     rule.category_id = spec.category_id
     rule.cost_center_id = spec.cost_center_id
+    rule.person_id = spec.person_id
     rule.is_active = spec.is_active
     session.commit()
     reclassify_pending(session)

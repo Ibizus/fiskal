@@ -121,14 +121,20 @@ Main tables (field names match the v1 schema):
 
 - **accounts**: id, `name` (display name), `currency_code`, optional
   `default_cost_center_id`, optional `account_hint` (at most four characters),
-  `is_active`.
+  `is_active`. An account has one or more holders through the
+  `account_holders` link table.
+- **persons**: id, `name`. A lightweight holder entity; holders are never
+  seeded and each profile creates its own.
+- **account_holders**: `account_id` + `person_id` composite key linking an
+  account to its holders.
 - **imports**: id, `account_id`, `file_name`, `file_hash`, `imported_at`,
   `rows_read`, `new_count`, `duplicate_count`, `first_transaction_date`,
   `last_transaction_date`, `continuity_ok`.
 - **transactions**: id, `account_id`, `import_id`, `operation_date`,
   `value_date`, `original_description`, `normalized_description`,
   `counterparty`, `amount_minor`, `balance_minor`, `currency_code`, `type`,
-  `cost_center_id`, `category_id`, `origin` (rule / history / manual /
+  `cost_center_id`, `category_id`, optional `person_id` (the attributed holder;
+  `NULL` means the transaction is not personal), `origin` (rule / history / manual /
   template; only meaningful once `category_id` is set — an empty `category_id`
   means unclassified regardless of `origin`, so classification code keys off
   `category_id`, never `origin`), `status` (pending / validated), optional proration period
@@ -138,12 +144,13 @@ Main tables (field names match the v1 schema):
 - **cost_centers**: id, `name_key`, optional `custom_name`, `group_label`,
   `is_active`, `attributes`.
 - **categories**: id, `name_key`, optional `custom_name`, `kind` (income or
-  expense), `nature` (fixed / variable), `default_proration_months`,
-  `is_active`.
+  expense), `nature` (fixed / variable), optional `income_source` (work /
+  benefit / rental / other; only meaningful for income categories),
+  `default_proration_months`, `is_active`.
 - **rules**: id, priority, condition on the normalized description
   ("contains" by default, optional regex advanced mode), optional amount range,
-  optional day-of-month range, type, cost center, category, active flag, created
-  from (seed / user), hit count, last hit.
+  optional day-of-month range, type, cost center, category, optional person,
+  active flag, created from (seed / user), hit count, last hit.
 - **recurring_templates**: entries generated on a configured day each month
   without passing through the bank.
 
@@ -298,6 +305,27 @@ internal transfer between the user's own accounts is part of the core,
 scheduled right after the importer, so merged views do not double count
 transfers.
 
+## Holders and income
+
+A holder is a lightweight person entity. An account has one or more holders,
+linked through `account_holders`. A transaction can optionally be attributed to
+a holder (`person_id`); the attribution can be set on any transaction but is
+used only for income reporting at first. There is no automatic default from the
+account's holders, and an unattributed transaction is not personal (gifts,
+shared rental, refunds). A rule action can assign the person.
+
+Income is not everything that enters an account. Earned income is work plus
+benefits (salary, bonus, unemployment, paternity) plus rental. The headline
+figures are labor income (work plus benefits), rental income and total earned
+income. Gifts and one-off inflows are shown separately as other inflows: they
+count in the cash balance but not in earned income. Shared-dinner transfers are
+refunds, netted against their category.
+
+This is implemented as an optional income source attribute on income categories
+(work, benefit, rental, other). The neutral seed splits the single income
+category into work, benefit and rental categories. Splitting rental income by
+property share stays in the future tax module.
+
 ## Screens
 
 Six Streamlit pages in the core:
@@ -328,6 +356,9 @@ All reports are queries over `transactions`; none stores its own totals.
   a separate block), in cash and real-cost views.
 - Cost-center view: income, expenses and balance for a cost center, with cash
   and real-cost selectors.
+- Income view: income per holder, shared or unattributed income and the total;
+  labor income (work plus benefits), rental income, total earned income and
+  other inflows, all in integer minor units.
 - Recurring charges with last increase.
 
 Deviation alerts and manual budget caps are deferred to a later version; they

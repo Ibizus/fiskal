@@ -10,6 +10,7 @@ from tests.support.factories import (
     _account,
     _category,
     _cost_center,
+    _person,
     _rule,
     _transaction,
 )
@@ -109,3 +110,29 @@ def test_reapply_validated_keeps_cost_center_when_rule_has_none(
     assert changed.category_id == food.id
     assert changed.cost_center_id == household.id
     assert unchanged.cost_center_id == household.id
+
+
+def test_reapply_validated_assigns_person(session: Session) -> None:
+    """A rule's person attribution is applied to validated rows on reapply."""
+    account = _account(session)
+    person = _person(session)
+    food = _category(session, key="category.food")
+    shopping = _category(session, key="category.shopping")
+    _rule(session, category=food, person=person)
+    txn = _transaction(
+        session,
+        account=account,
+        description="grocery store",
+        status=TransactionStatus.VALIDATED,
+        category=shopping,
+        origin=ClassificationOrigin.MANUAL,
+        transaction_type=TransactionType.EXPENSE,
+    )
+
+    changes = preview_reapply_validated(session)
+
+    assert len(changes) == 1
+    assert changes[0].person_id == person.id
+    apply_reapply_validated(session, changes)
+    session.refresh(txn)
+    assert txn.person_id == person.id

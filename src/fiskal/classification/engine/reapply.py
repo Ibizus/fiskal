@@ -27,6 +27,7 @@ class ReapplyChange:
     transaction_type: str
     category_id: UUID
     cost_center_id: UUID | None
+    person_id: UUID | None
 
 
 def preview_reapply_validated(session: Session) -> list[ReapplyChange]:
@@ -56,10 +57,13 @@ def preview_reapply_validated(session: Session) -> list[ReapplyChange]:
             if rule.cost_center_id is not None
             else txn.cost_center_id
         )
+        # A rule without a person keeps the transaction's attribution.
+        person_id = rule.person_id if rule.person_id is not None else txn.person_id
         if (
             txn.transaction_type == rule.transaction_type
             and txn.category_id == rule.category_id
             and txn.cost_center_id == cost_center_id
+            and txn.person_id == person_id
         ):
             continue
         changes.append(
@@ -69,6 +73,7 @@ def preview_reapply_validated(session: Session) -> list[ReapplyChange]:
                 transaction_type=rule.transaction_type,
                 category_id=rule.category_id,
                 cost_center_id=cost_center_id,
+                person_id=person_id,
             )
         )
     return changes
@@ -94,6 +99,7 @@ def apply_reapply_validated(session: Session, changes: Sequence[ReapplyChange]) 
             txn.transaction_type = change.transaction_type
             txn.category_id = change.category_id
             txn.cost_center_id = change.cost_center_id
+            txn.person_id = change.person_id
             txn.origin = ClassificationOrigin.RULE.value
             txn.rule_id = rule_id
             rule.hit_count += 1

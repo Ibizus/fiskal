@@ -21,6 +21,7 @@ from tests.support.factories import (
     _account,
     _category,
     _cost_center,
+    _person,
     _rule,
     _transaction,
 )
@@ -44,6 +45,33 @@ def test_rule_layer_classifies_and_records_origin(session: Session) -> None:
     assert txn.transaction_type == TransactionType.EXPENSE.value
     assert txn.origin == ClassificationOrigin.RULE.value
     assert txn.rule_id == rule.id
+
+
+def test_rule_layer_assigns_person(session: Session) -> None:
+    """A rule that names a person attributes the matched transaction to it."""
+    account = _account(session)
+    category = _category(session)
+    person = _person(session)
+    _rule(session, category=category, person=person)
+    txn = _transaction(session, account=account)
+
+    classify_pending(session)
+
+    session.refresh(txn)
+    assert txn.person_id == person.id
+
+
+def test_rule_layer_without_person_keeps_unattributed(session: Session) -> None:
+    """A rule without a person leaves the transaction unattributed."""
+    account = _account(session)
+    category = _category(session)
+    _rule(session, category=category)
+    txn = _transaction(session, account=account)
+
+    classify_pending(session)
+
+    session.refresh(txn)
+    assert txn.person_id is None
 
 
 def test_rule_hit_count_and_last_hit_are_updated(session: Session) -> None:
@@ -79,6 +107,7 @@ def test_reclassify_does_not_inflate_hit_count(session: Session) -> None:
             transaction_type="expense",
             category_id=category.id,
             cost_center_id=None,
+            person_id=None,
             amount_min_minor=None,
             amount_max_minor=None,
             day_of_month_min=None,
@@ -96,6 +125,7 @@ def test_reclassify_does_not_inflate_hit_count(session: Session) -> None:
             transaction_type="expense",
             category_id=category.id,
             cost_center_id=None,
+            person_id=None,
             amount_min_minor=None,
             amount_max_minor=None,
             day_of_month_min=None,
@@ -129,6 +159,7 @@ def test_reclassify_counts_hit_when_row_moves_to_another_rule(
             transaction_type="expense",
             category_id=category.id,
             cost_center_id=None,
+            person_id=None,
             amount_min_minor=None,
             amount_max_minor=None,
             day_of_month_min=None,

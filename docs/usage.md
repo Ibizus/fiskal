@@ -92,13 +92,13 @@ Right after an import, and after internal-transfer proposals, Fiskal runs a
 classification cascade over the new, pending movements:
 
 1. **Rules** — an active rule whose condition matches assigns the type, cost
-   center and category. Rules are data in the database, never code. A rule has
-   a numeric priority, a case-insensitive ``contains`` condition on the
-   normalized description and counterparty (or an optional regex advanced
-   mode), an optional amount range and an optional day-of-month range. User
-   rules always beat seed rules; inside each group the lower priority wins
-   first, ties break on the rule id. The import summary reports how many
-   movements were classified by rule.
+   center, category and optionally a holder (person). Rules are data in the
+   database, never code. A rule has a numeric priority, a case-insensitive
+   ``contains`` condition on the normalized description and counterparty (or an
+   optional regex advanced mode), an optional amount range and an optional
+   day-of-month range. User rules always beat seed rules; inside each group the
+   lower priority wins first, ties break on the rule id. The import summary
+   reports how many movements were classified by rule.
 2. **History** — when every validated transaction with the same normalized
    counterparty was classified the same way, that classification is applied.
    When history disagrees, the movement stays unclassified; nothing is stored,
@@ -115,18 +115,45 @@ history always shows a preview first.
 ### Neutral seed data
 
 The repository ships neutral default categories, cost centers and a tiny set of
-seed rules (all non-personal and merchant-independent). Categories and cost
-centers are installed idempotently by key and never overwrite user-customised
-names. Rule seeding is a first-run action: seed rules are installed only while
-the profile has no rules at all, so a deleted or edited seed rule never comes
-back on a later run. Restoring the default rules would be a separate, explicit
-feature:
+seed rules (all non-personal and merchant-independent). The single income
+category is split into work, benefit and rental income categories, each with
+its income source, so the neutral seed already distinguishes labor and rental
+income. Categories and cost centers are installed idempotently by key and never
+overwrite user-customised names. Rule seeding is a first-run action: seed rules
+are installed only while the profile has no rules at all, so a deleted or
+edited seed rule never comes back on a later run. Restoring the default rules
+would be a separate, explicit feature:
 
 ```python
 from fiskal.classification import seed_neutral_data
 
 seed_neutral_data(session)
 ```
+
+## Holders and income
+
+A holder is a lightweight person entity; an account has one or more holders.
+A transaction can optionally be attributed to a holder, with no default taken
+from the account's holders. This data layer ships without a user interface for
+now (the screens belong to a later slice), but the report helpers are ready:
+
+```python
+from fiskal.reports.income import (
+    earned_income_minor,
+    income_by_holder,
+    labor_income_minor,
+    other_inflows_minor,
+    rental_income_minor,
+    total_income,
+    unattributed_income,
+)
+```
+
+Income is split into labor income (work plus benefits), rental income and other
+inflows (gifts and one-offs). Earned income is labor plus rental; other inflows
+count in the cash balance but not in earned income. All amounts are integer
+minor units. Splitting rental income by property share stays in the future tax
+module.
 
 ## Pre-commit
 

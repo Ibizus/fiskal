@@ -18,11 +18,14 @@ class Category:
         key: Translation key used to look up the display name.
         kind: Either ``"income"`` or ``"expense"``.
         nature: Either ``"fixed"`` or ``"variable"`` for reporting.
+        income_source: Optional income source (``work``, ``benefit``,
+            ``rental`` or ``other``); only meaningful for income categories.
     """
 
     key: str
     kind: str
     nature: str
+    income_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,7 +66,9 @@ class SeedRule:
 
 
 DEFAULT_CATEGORIES: Final[tuple[Category, ...]] = (
-    Category("category.income", "income", "variable"),
+    Category("category.income.work", "income", "variable", income_source="work"),
+    Category("category.income.benefit", "income", "variable", income_source="benefit"),
+    Category("category.income.rental", "income", "variable", income_source="rental"),
     Category("category.housing", "expense", "fixed"),
     Category("category.utilities", "expense", "variable"),
     Category("category.food", "expense", "variable"),
@@ -95,7 +100,7 @@ DEFAULT_RULES: Final[tuple[SeedRule, ...]] = (
         mode="contains",
         pattern="salary",
         transaction_type="income",
-        category_key="category.income",
+        category_key="category.income.work",
         cost_center_key=None,
         amount_min_minor=1,
     ),
@@ -104,7 +109,7 @@ DEFAULT_RULES: Final[tuple[SeedRule, ...]] = (
         mode="contains",
         pattern="payroll",
         transaction_type="income",
-        category_key="category.income",
+        category_key="category.income.work",
         cost_center_key=None,
         amount_min_minor=1,
     ),

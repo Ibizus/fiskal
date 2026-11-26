@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from fiskal.db.models import Account, Category, CostCenter, Rule, Transaction
+from fiskal.db.models import Account, Category, CostCenter, Person, Rule, Transaction
 from fiskal.domain.enums import (
     CategoryKind,
     CategoryNature,
@@ -19,6 +19,13 @@ from fiskal.domain.enums import (
     TransactionStatus,
     TransactionType,
 )
+
+
+def _person(session: Session, *, name: str = "Ada") -> Person:
+    person = Person(name=name)
+    session.add(person)
+    session.commit()
+    return person
 
 
 def _account(
@@ -39,11 +46,13 @@ def _category(
     *,
     key: str = "category.food",
     kind: CategoryKind = CategoryKind.EXPENSE,
+    income_source: str | None = None,
 ) -> Category:
     category = Category(
         name_key=key,
         kind=kind.value,
         nature=CategoryNature.VARIABLE.value,
+        income_source=income_source,
     )
     session.add(category)
     session.commit()
@@ -66,6 +75,7 @@ def _rule(
     transaction_type: str = "expense",
     category: Category,
     cost_center: CostCenter | None = None,
+    person: Person | None = None,
     origin: RuleOrigin = RuleOrigin.USER,
     is_active: bool = True,
 ) -> Rule:
@@ -76,6 +86,7 @@ def _rule(
         transaction_type=transaction_type,
         category_id=category.id,
         cost_center_id=cost_center.id if cost_center else None,
+        person_id=person.id if person else None,
         origin=origin.value,
         is_active=is_active,
     )
@@ -96,6 +107,7 @@ def _transaction(
     origin: ClassificationOrigin = ClassificationOrigin.MANUAL,
     category: Category | None = None,
     cost_center: CostCenter | None = None,
+    person: Person | None = None,
     transaction_type: TransactionType | None = None,
     identity: str | None = None,
 ) -> Transaction:
@@ -120,6 +132,7 @@ def _transaction(
         ),
         cost_center_id=cost_center.id if cost_center else None,
         category_id=category.id if category else None,
+        person_id=person.id if person else None,
         origin=origin.value,
         status=status.value,
         identity_key=identity or str(uuid4()),

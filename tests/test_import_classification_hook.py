@@ -203,6 +203,7 @@ def test_rule_hit_count_does_not_inflate_on_unrelated_rule_change(
             transaction_type="expense",
             category_id=category.id,
             cost_center_id=None,
+            person_id=None,
             amount_min_minor=None,
             amount_max_minor=None,
             day_of_month_min=None,

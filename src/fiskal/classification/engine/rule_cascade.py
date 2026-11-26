@@ -72,6 +72,7 @@ def _apply_rule(txn: Transaction, rule: Rule) -> None:
     txn.transaction_type = rule.transaction_type
     txn.category_id = rule.category_id
     txn.cost_center_id = rule.cost_center_id
+    txn.person_id = rule.person_id
     txn.origin = ClassificationOrigin.RULE.value
     txn.rule_id = rule.id
 
