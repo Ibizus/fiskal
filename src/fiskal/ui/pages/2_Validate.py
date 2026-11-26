@@ -8,11 +8,11 @@ from sqlalchemy.orm import Session
 from fiskal.classification import (
     ValidationError,
     confirm_pair,
-    create_rule_from_correction,
     find_proposals_for_transaction_ids,
     list_pending_transactions,
     reject_pair,
     suggest_from_history,
+    validate_and_create_rule,
     validate_transaction,
 )
 from fiskal.db.models import Category, CostCenter, Person, Transaction
@@ -33,6 +33,7 @@ from fiskal.ui.labels import (
     person_label,
     transaction_type_label,
 )
+from fiskal.ui.messages import flash, show_flashes
 from fiskal.ui.session import open_session
 
 _TYPE_OPTIONS = [
@@ -153,25 +154,25 @@ def _render_transaction(
 
         create_rule = st.checkbox(
             translate("validate.create_rule"),
+            help=translate("validate.create_rule_help"),
             key=f"validate_{txn.id}_create_rule",
         )
         pattern = st.text_input(
             translate("validate.rule_pattern"),
+            help=translate("validate.rule_pattern_help"),
             value=(txn.counterparty or txn.normalized_description).strip(),
             key=f"validate_{txn.id}_pattern",
         )
 
-        confirm_col, save_col = st.columns(2)
-        confirmed = confirm_col.form_submit_button(
-            translate("validate.confirm"),
-            key=f"validate_{txn.id}_confirm",
-        )
-        saved = save_col.form_submit_button(
-            translate("validate.save"),
-            key=f"validate_{txn.id}_save",
+        # Confirming the proposal as shown and saving a correction are the same
+        # action: the movement is validated with whatever the fields hold.
+        submitted = st.form_submit_button(
+            translate("validate.submit"),
+            help=translate("validate.submit_help"),
+            key=f"validate_{txn.id}_submit",
         )
 
-    if not (confirmed or saved):
+    if not submitted:
         return
 
     if chosen_category is None:
@@ -181,7 +182,7 @@ def _render_transaction(
     person_id = chosen_person.id if chosen_person is not None else None
     try:
         if create_rule:
-            create_rule_from_correction(
+            outcome = validate_and_create_rule(
                 session,
                 txn.id,
                 transaction_type=chosen_type,
@@ -190,18 +191,26 @@ def _render_transaction(
                 person_id=person_id,
                 pattern=pattern or None,
             )
-        validate_transaction(
-            session,
-            txn.id,
-            transaction_type=chosen_type,
-            category_id=chosen_category.id,
-            cost_center_id=cost_center_id,
-            person_id=person_id,
-        )
+            flash("success", translate("validate.validated"))
+            flash(
+                "success",
+                translate("validate.rule_created").format(
+                    count=outcome.validated_count
+                ),
+            )
+        else:
+            validate_transaction(
+                session,
+                txn.id,
+                transaction_type=chosen_type,
+                category_id=chosen_category.id,
+                cost_center_id=cost_center_id,
+                person_id=person_id,
+            )
+            flash("success", translate("validate.validated"))
     except (RuleValidationError, ValidationError) as exc:
         st.error(str(exc))
         return
-    st.success(translate("validate.confirm"))
     st.rerun()
 
 
@@ -236,6 +245,7 @@ def _render_pair_proposals(session: Session, proposals: list[PairProposal]) -> N
             except PairingError as exc:
                 st.error(str(exc))
                 continue
+            flash("success", translate("validate.pair_confirmed"))
             st.rerun()
         if reject_col.button(
             translate("validate.reject_pair"),
@@ -246,6 +256,7 @@ def _render_pair_proposals(session: Session, proposals: list[PairProposal]) -> N
             except PairingError as exc:
                 st.error(str(exc))
                 continue
+            flash("success", translate("validate.pair_rejected"))
             st.rerun()
 
 
@@ -285,6 +296,7 @@ def main() -> None:
     """Render the validate page."""
     st.set_page_config(page_title=translate("nav.validate"), page_icon="✅")
     st.header(translate("nav.validate"))
+    show_flashes()
     with open_session() as session:
         pending = list_pending_transactions(session)
         proposals = find_proposals_for_transaction_ids(

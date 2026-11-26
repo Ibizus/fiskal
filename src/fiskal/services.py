@@ -7,9 +7,11 @@ Classification, import and report rules live in their own packages.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from fiskal.db.models import (
@@ -19,7 +21,9 @@ from fiskal.db.models import (
     CostCenter,
     Import,
     Person,
+    Transaction,
 )
+from fiskal.domain.enums import TransactionStatus
 
 CURRENCY_CODE_LENGTH = 3
 ACCOUNT_HINT_LENGTH = 4
@@ -83,6 +87,32 @@ def list_imports(
             statement.order_by(Import.imported_at.desc()).limit(limit)
         ).scalars()
     )
+
+
+@dataclass(frozen=True)
+class HomeOverview:
+    """The few figures the Home page shows."""
+
+    pending_count: int
+    last_import_at: datetime | None
+
+
+def home_overview(session: Session) -> HomeOverview:
+    """Return the pending movement count and the date of the last import.
+
+    Pending movements are the ones waiting in the validation queue, so paired
+    internal transfers are not counted.
+    """
+    pending_count = session.execute(
+        select(func.count())
+        .select_from(Transaction)
+        .where(
+            Transaction.status == TransactionStatus.PENDING.value,
+            Transaction.paired_transaction_id.is_(None),
+        )
+    ).scalar_one()
+    last_import_at = session.execute(select(func.max(Import.imported_at))).scalar()
+    return HomeOverview(pending_count=int(pending_count), last_import_at=last_import_at)
 
 
 def create_person(session: Session, name: str) -> Person:

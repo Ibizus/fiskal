@@ -5,6 +5,8 @@ from __future__ import annotations
 import streamlit as st
 from sqlalchemy.orm import Session
 
+from fiskal.classification import ValidationError, return_to_queue
+from fiskal.db.models import Transaction
 from fiskal.domain.enums import TransactionStatus, TransactionType
 from fiskal.i18n import translate
 from fiskal.reports.helpers import TransactionFilter, list_transactions
@@ -22,6 +24,7 @@ from fiskal.ui.labels import (
     status_label,
     transaction_type_label,
 )
+from fiskal.ui.messages import flash, show_flashes
 from fiskal.ui.session import open_session
 
 _TYPE_OPTIONS = [
@@ -32,10 +35,14 @@ _TYPE_OPTIONS = [
     TransactionType.INTERNAL_TRANSFER.value,
     TransactionType.REFUND.value,
 ]
+# ``VALIDATED_BY_RULE`` is a filter value only: those rows have status validated
+# and carry the ``validated_by_rule`` marker.
+VALIDATED_BY_RULE = "validated_by_rule"
 _STATUS_OPTIONS = [
     None,
     TransactionStatus.PENDING.value,
     TransactionStatus.VALIDATED.value,
+    VALIDATED_BY_RULE,
 ]
 LIST_LIMIT = 500
 
@@ -49,7 +56,43 @@ def _type_option_label(value: str | None) -> str:
 def _status_option_label(value: str | None) -> str:
     if value is None:
         return translate("transactions.all_statuses")
+    if value == VALIDATED_BY_RULE:
+        return translate("status.validated_by_rule")
     return status_label(value)
+
+
+def _row_status_label(txn: Transaction) -> str:
+    if txn.validated_by_rule:
+        return translate("status.validated_by_rule")
+    return status_label(txn.status)
+
+
+def _render_send_back(session: Session, transactions: list[Transaction]) -> None:
+    marked = [txn for txn in transactions if txn.validated_by_rule]
+    if not marked:
+        return
+    chosen = st.selectbox(
+        translate("transactions.send_back_select"),
+        marked,
+        format_func=lambda txn: (
+            f"{txn.operation_date.isoformat()} · "
+            f"{format_minor(txn.amount_minor, txn.currency_code)} — "
+            f"{txn.original_description}"
+        ),
+        key="transactions_send_back",
+    )
+    if st.button(
+        translate("transactions.send_back"),
+        help=translate("transactions.send_back_help"),
+        key="transactions_send_back_button",
+    ):
+        try:
+            return_to_queue(session, chosen.id)
+        except ValidationError as exc:
+            st.error(str(exc))
+            return
+        flash("success", translate("transactions.sent_back"))
+        st.rerun()
 
 
 def _render_table(session: Session) -> None:
@@ -80,10 +123,12 @@ def _render_table(session: Session) -> None:
     )
     query = st.text_input(translate("transactions.search"), key="transactions_query")
 
+    by_rule = chosen_status == VALIDATED_BY_RULE
     filters = TransactionFilter(
         account_id=account.id if account is not None else None,
         transaction_type=chosen_type,
-        status=chosen_status,
+        status=TransactionStatus.VALIDATED.value if by_rule else chosen_status,
+        validated_by_rule=True if by_rule else None,
         query=query or None,
     )
     transactions = list_transactions(session, filters, limit=LIST_LIMIT)
@@ -125,19 +170,22 @@ def _render_table(session: Session) -> None:
                 translate("transactions.person"): person_label(
                     persons_by_id.get(txn.person_id)
                 ),
-                translate("transactions.status"): status_label(txn.status),
+                translate("transactions.status"): _row_status_label(txn),
                 translate("transactions.amount"): format_minor(
                     txn.amount_minor, txn.currency_code
                 ),
             }
         )
     st.dataframe(rows, use_container_width=True, hide_index=True)
+    if by_rule:
+        _render_send_back(session, transactions)
 
 
 def main() -> None:
     """Render the transactions page."""
     st.set_page_config(page_title=translate("nav.transactions"), page_icon="🧾")
     st.header(translate("nav.transactions"))
+    show_flashes()
     with open_session() as session:
         _render_table(session)
 

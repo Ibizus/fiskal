@@ -194,6 +194,7 @@ def import_statement(
         near_duplicates=tuple(near_duplicates),
         proposed_pair_count=len({p.source_id for p in pair_proposals}),
         classified_by_rule=classification.classified_by_rule,
+        validated_by_rule=classification.validated_by_rule,
         classified_by_history=classification.classified_by_history,
         classified_by_default=classification.classified_by_default,
         unclassified=classification.unclassified,
@@ -248,7 +249,8 @@ def revert_import(session: Session, import_id: UUID) -> None:
     """Delete an import and all its transactions, when allowed.
 
     An import can only be reverted while none of its transactions has been
-    validated or paired as an internal transfer; rejected pair decisions that
+    validated by hand or paired as an internal transfer; transactions that a
+    rule validated automatically do not block it; rejected pair decisions that
     involve its transactions are deleted with them. The closed-month guard
     will be added with the month-close feature.
     """
@@ -262,7 +264,10 @@ def revert_import(session: Session, import_id: UUID) -> None:
         ).scalars()
     )
     for txn in transactions:
-        if txn.status == TransactionStatus.VALIDATED.value:
+        if (
+            txn.status == TransactionStatus.VALIDATED.value
+            and not txn.validated_by_rule
+        ):
             raise ImportRevertError(
                 "cannot revert an import that contains validated transactions"
             )

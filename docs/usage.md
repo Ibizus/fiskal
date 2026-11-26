@@ -14,23 +14,36 @@ uv run streamlit run src/fiskal/ui/launcher.py
 
 Then open the URL printed by Streamlit in your browser.
 
-The launcher opens the welcome page and the sidebar lists the three working
-pages:
+The launcher opens **Home** and the sidebar lists it first, followed by the
+three working pages.
+
+- **Home** — the number of pending movements, the date of the last import and
+  links to the other pages. The full overview comes later with the reports.
+
+The working pages:
 
 - **Import** — create holders and accounts under **Accounts and holders**
   (an account needs a name and a three-letter currency; the last four digits
   of the account number and its holders are optional), then pick an account
   (with its last-four-digit hint), upload an Openbank statement, review the
-  import summary, and revert a whole import.
+  import summary, and revert a whole import. Adding a holder or an account
+  confirms with a message, or shows the error. Messages after an action stay
+  on screen until your next click.
 - **Validate** — internal-transfer pair proposals come first and can be
   confirmed or rejected; both sides of an open proposal stay out of the queue
   until it is decided. Then work through the pending queue, shown 25 movements
   at a time. Each transaction shows the proposed type, category, cost center
-  and optional holder; confirm it as proposed or correct it. A category must be
-  chosen when none was proposed. A correction can create a ``contains`` rule
-  whose pattern you can edit, and the history-based suggestion is preselected.
+  and optional holder. The single **Validate** button accepts the fields as
+  shown, whether you changed them or not (hover the button for help). A
+  category must be chosen when none was proposed. Tick **Create rule from this
+  correction** to also create a ``contains`` rule whose pattern you can edit:
+  it validates the other pending movements that match, and the page reports how
+  many. The history-based suggestion is preselected.
 - **Transactions** — list transactions with filters for account, type, status
-  and a text search over the description and counterparty. Only the 500 most
+  and a text search over the description and counterparty. The status filter
+  has a **Validated by rule** option to review what your rules validated
+  automatically; there you can send a movement back to the Validate queue. To
+  correct one, send it back and validate it again: it then stays manual. Only the 500 most
   recent matching movements are shown; the page says when that limit is hit.
 
 The profile database is created on first run under the OS-specific data
@@ -134,10 +147,14 @@ classification cascade over the new, pending movements:
 3. **Account default cost center** — the last layer fills only the cost center
    when no earlier layer set one, and never sets type or category.
 
-Rules and categories are never validated by the engine: every movement remains
-``pending`` until the user confirms or corrects it in the validation queue.
-Rule changes reclassify only pending movements; a bulk reapply over validated
-history always shows a preview first. On a pending movement classified by a
+Only rules you created validate movements: a movement that matches one is
+classified and validated automatically (``validated by rule``), when importing
+and when you create or edit such a rule for movements already pending. Seed
+rules and history suggestions only preselect the category; those movements
+stay ``pending`` until you validate them in the validation queue. Rule
+changes reclassify pending movements and the movements a rule validated; a
+movement you validated yourself never changes, and a bulk reapply over
+validated history always shows a preview first. On a pending movement classified by a
 rule, the holder belongs to the engine and is cleared when it is reclassified;
 a manual edit switches the movement to manual, and manual movements keep their
 holder.

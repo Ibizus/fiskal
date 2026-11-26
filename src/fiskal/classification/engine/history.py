@@ -82,6 +82,7 @@ def _validated_outcomes(
             select(Transaction).where(
                 Transaction.status == TransactionStatus.VALIDATED.value,
                 Transaction.category_id.is_not(None),
+                Transaction.validated_by_rule.is_(False),
                 Transaction.counterparty.in_(counterparties),
             )
         ).scalars()

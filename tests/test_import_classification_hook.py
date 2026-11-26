@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from fiskal.classification import RuleSpec, create_rule
+from fiskal.classification import RuleSpec, create_rule, validate_and_create_rule
 from fiskal.classification.pairing_service import confirm_pair
 from fiskal.db.base import Base
 from fiskal.db.engine import make_engine
@@ -19,7 +19,7 @@ from fiskal.domain.enums import (
     RuleOrigin,
     TransactionType,
 )
-from fiskal.importers import OpenbankImporter, import_statement
+from fiskal.importers import OpenbankImporter, import_statement, revert_import
 from tests.support.openbank_synthetic import (
     GenerationOptions,
     Movement,
@@ -367,3 +367,121 @@ def test_default_cost_center_count_excludes_rule_classified_rows(
     assert txn.category_id == category.id
     assert txn.cost_center_id == default_cc.id
     assert txn.origin == ClassificationOrigin.RULE.value
+
+
+def _setup_food_account(session: Session) -> tuple[Account, Category]:
+    category = Category(name_key="category.food", kind="expense", nature="variable")
+    account = Account(name="Account", currency_code="EUR")
+    session.add_all([category, account])
+    session.commit()
+    return account, category
+
+
+def test_import_validates_by_user_rule_and_reports_it(
+    session: Session, tmp_path: Path
+) -> None:
+    """Rows a user rule matches arrive validated and are counted in the summary."""
+    account, category = _setup_food_account(session)
+    session.add(
+        Rule(
+            priority=1,
+            mode="contains",
+            pattern="grocery",
+            transaction_type=TransactionType.EXPENSE.value,
+            category_id=category.id,
+            origin=RuleOrigin.USER.value,
+        )
+    )
+    session.commit()
+    day = date(2024, 3, 15)
+    movements = [
+        _movement(day, "grocery store", -1000, 99_000),
+        _movement(day, "cash withdrawal", -500, 98_500),
+    ]
+    path = tmp_path / "a.xls"
+    path.write_bytes(_statement(path, movements))
+
+    result = import_statement(
+        session, OpenbankImporter(), account, "a.xls", path.read_bytes()
+    )
+
+    assert result.summary.classified_by_rule == 1
+    assert result.summary.validated_by_rule == 1
+    rows = {
+        txn.normalized_description: txn
+        for txn in session.execute(select(Transaction)).scalars()
+    }
+    assert rows["grocery store"].status == "validated"
+    assert rows["grocery store"].validated_by_rule is True
+    assert rows["cash withdrawal"].status == "pending"
+
+
+def test_rule_from_imported_counterparty_matches_sibling_rows(
+    session: Session, tmp_path: Path
+) -> None:
+    """A rule built from a card movement's counterparty matches the other card rows.
+
+    Rules match the normalized description and counterparty, so card masks and
+    trailing references that differ between rows must not matter.
+    """
+    account, category = _setup_food_account(session)
+    day = date(2024, 3, 15)
+    movements = [
+        _movement(
+            day,
+            f"Purchase Demo Shop DEMO CARD 1234 56** **** 7890 REF {n:06d}",
+            -1000 - n,
+            99_000 - n,
+        )
+        for n in range(1, 4)
+    ]
+    path = tmp_path / "a.xls"
+    path.write_bytes(_statement(path, movements))
+    import_statement(session, OpenbankImporter(), account, "a.xls", path.read_bytes())
+    rows = list(session.execute(select(Transaction)).scalars())
+    assert {txn.counterparty for txn in rows} == {"Demo Shop"}
+
+    first = rows[0]
+    outcome = validate_and_create_rule(
+        session,
+        first.id,
+        transaction_type="expense",
+        category_id=category.id,
+        cost_center_id=None,
+        person_id=None,
+    )
+
+    assert outcome.validated_count == len(rows) - 1
+    assert all(
+        txn.status == "validated"
+        for txn in session.execute(select(Transaction)).scalars()
+    )
+
+
+def test_import_with_rule_validated_rows_can_be_reverted(
+    session: Session, tmp_path: Path
+) -> None:
+    """Rows a rule validated automatically do not block reverting the import."""
+    account, category = _setup_food_account(session)
+    session.add(
+        Rule(
+            priority=1,
+            mode="contains",
+            pattern="grocery",
+            transaction_type=TransactionType.EXPENSE.value,
+            category_id=category.id,
+            origin=RuleOrigin.USER.value,
+        )
+    )
+    session.commit()
+    path = tmp_path / "a.xls"
+    path.write_bytes(
+        _statement(path, [_movement(date(2024, 3, 15), "grocery", -1000, 99_000)])
+    )
+    result = import_statement(
+        session, OpenbankImporter(), account, "a.xls", path.read_bytes()
+    )
+
+    revert_import(session, result.import_id)
+
+    assert session.execute(select(Transaction)).first() is None

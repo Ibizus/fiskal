@@ -140,7 +140,9 @@ Main tables (field names match the v1 schema):
   `category_id`, never `origin`), `status` (pending / validated), optional proration period
   (`proration_start_date` and `proration_end_date`), `note`, `is_manual`,
   `identity_key` (unique per account), optional `rule_id` (the rule that
-  classified it, when a rule did).
+  classified it, when a rule did), `validated_by_rule` (audit marker for a
+  transaction a user rule validated automatically; see the classification
+  pipeline).
 - **cost_centers**: id, `name_key`, optional `custom_name`, `group_label`,
   `is_active`, `attributes`.
 - **categories**: id, `name_key`, optional `custom_name`, `kind` (income or
@@ -225,7 +227,7 @@ uploads and downloads with unexpected dates.
 ### Import revert
 
 An import can be reverted as a whole while none of its transactions has been
-validated or paired as an internal transfer and its month is not closed.
+validated by hand or paired as an internal transfer and its month is not closed.
 Rejected pair decisions involving its transactions are deleted with it.
 Otherwise only single transactions can be deleted, with a confirmation. Data imported from the bank (dates, amount,
 description, balance) is never edited; only classification and note are
@@ -250,22 +252,32 @@ loaded, under 5% of a month's transactions reach the manual queue.
    be confirmed or undone when either side is already validated, and validated
    transactions are never proposed. Full account numbers are never stored.
 3. Deterministic rules by priority: first match assigns type, cost center,
-   category and optionally a holder. Conditions: "contains" on the normalized description/counterparty,
+   category and optionally a holder. A match by a rule the owner created also
+   validates the transaction automatically (`status` validated, `origin` rule,
+   `validated_by_rule` set, `rule_id` kept as the audit trail), both when a
+   statement is imported and, when such a rule is created or edited, for the
+   transactions already pending. A match by a seed rule only preselects the
+   classification and the transaction stays in the queue. A transaction in an
+   open internal-transfer proposal is classified but not validated. Conditions: "contains" on the normalized description/counterparty,
    optional amount range, optional day-of-month range. Regular expressions are
    an optional advanced mode.
 4. History: if the same normalized counterparty was always validated one way,
    propose it; if it had several, queue it with the most frequent one
    preselected.
 5. AI (optional module, v2): a `Classifier` implementation that suggests with a
-   confidence level and never validates by itself. It sends only the normalized
+   confidence level and never validates by itself. The history layer and seed
+   rules likewise only preselect; only user rules validate. It sends only the normalized
    concept, amount and date.
 6. Account default cost center: the last classification layer before the
    validation queue. It only fills the cost center, and only when no earlier
    layer (rules, history, optional AI suggestion) has already set one; it never
    sets type or category and never overrides an earlier layer. The transaction
    still goes through the validation queue with that cost center preselected.
-7. Validation queue: confirm or correct; on correction the app offers "create
-   rule" with an editable proposed pattern.
+7. Validation queue: validate (a single action that accepts the fields as
+   shown, whether or not they were changed); on correction the app offers
+   "create rule" with an editable proposed pattern. Creating the rule validates
+   the corrected transaction by hand and then every other pending transaction
+   the rule matches; the app reports how many.
 
 Cross-cutting business rules:
 
@@ -274,9 +286,16 @@ Cross-cutting business rules:
   wins. The rule editor warns when a new rule collides with another.
 - **Correcting a classified transaction**: correcting a transaction that a rule
   classified offers a new, more specific rule above it. A rule is never
-  modified silently. Rule changes reclassify only pending transactions;
-  validated transactions never change on their own. An explicit bulk action
-  with a preview can reapply rules to validated history.
+  modified silently. Rule changes reclassify pending transactions and the
+  transactions a user rule validated automatically (they follow the rule: they
+  return to the queue when it no longer matches); transactions validated by
+  hand never change on their own. A hand-set holder stays manual and a holder
+  set by a rule stays rule-owned. The owner can filter the transactions a rule
+  validated, correct one (it then sticks as a manual classification) or send it
+  back to the queue. An explicit bulk action with a preview can reapply rules
+  to validated history. Rule-validated transactions do not feed history
+  suggestions, do not block reverting their import, and can still be paired as
+  internal transfers.
 - **Refunds**: an incoming transfer from a person with no rule of its own is a
   refund that nets against its category in the month it arrives. It is not
   linked to the original expense.

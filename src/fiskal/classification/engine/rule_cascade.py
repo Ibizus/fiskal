@@ -3,12 +3,15 @@
 This module owns rule precedence and matching. It exposes the
 precedence-ordered active rules and the rule-to-condition conversion used by
 the rule service, plus the apply step that stamps a matching rule onto a
-pending transaction.
+pending transaction. A matching user rule also validates the transaction (the
+row is flagged ``validated_by_rule`` and keeps its ``rule_id`` as the audit
+marker); a matching
+seed rule only preselects the classification and leaves the row pending.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -16,7 +19,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fiskal.db.models import Rule, Transaction
-from fiskal.domain.enums import ClassificationOrigin, RuleMatchMode, RuleOrigin
+from fiskal.domain.enums import (
+    ClassificationOrigin,
+    RuleMatchMode,
+    RuleOrigin,
+    TransactionStatus,
+)
 from fiskal.domain.rule_matching import RuleCondition, condition_matches
 
 
@@ -68,21 +76,30 @@ def first_matching_rule(rules: list[Rule], txn: Transaction) -> Rule | None:
     return None
 
 
-def _apply_rule(txn: Transaction, rule: Rule) -> None:
+def _apply_rule(txn: Transaction, rule: Rule, *, validate: bool) -> None:
     txn.transaction_type = rule.transaction_type
     txn.category_id = rule.category_id
     txn.cost_center_id = rule.cost_center_id
     txn.person_id = rule.person_id
     txn.origin = ClassificationOrigin.RULE.value
     txn.rule_id = rule.id
+    if validate and rule.origin == RuleOrigin.USER.value:
+        txn.status = TransactionStatus.VALIDATED.value
+        txn.validated_by_rule = True
 
 
 def apply_rules(
     session: Session,
     targets: list[Transaction],
     previous_rule_ids: Mapping[UUID, UUID | None],
+    keep_pending_ids: Collection[UUID] = (),
 ) -> int:
     """Apply the first matching rule to each target and return the count.
+
+    Rows matched by a user rule become validated; rows matched by a seed rule
+    stay pending with the classification preselected. Rows in
+    ``keep_pending_ids`` (proposed internal-transfer legs) are classified but
+    never validated, so the owner decides on the pairing first.
 
     A rule's hit is only counted when a row moves to a different rule, so a
     reclassification over an unchanged match does not inflate the hit count.
@@ -92,7 +109,7 @@ def apply_rules(
     for txn in targets:
         rule = first_matching_rule(rules, txn)
         if rule is not None:
-            _apply_rule(txn, rule)
+            _apply_rule(txn, rule, validate=txn.id not in keep_pending_ids)
             if previous_rule_ids.get(txn.id) != rule.id:
                 rule.hit_count += 1
                 rule.last_hit_at = datetime.now(UTC)

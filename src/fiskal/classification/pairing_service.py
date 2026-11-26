@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.orm import Session
 
 from fiskal.db.models import RejectedPair, Transaction
@@ -27,6 +27,22 @@ from fiskal.domain.transfer_pairing import (
     TransferCandidate,
     TransferPairing,
 )
+
+
+def _is_hand_validated(txn: Transaction) -> bool:
+    """Return True for validated rows pairing must not touch.
+
+    A row that a user rule validated automatically is not
+    protected: the owner has not reviewed it yet, and pairing releases it.
+    """
+    return txn.status == TransactionStatus.VALIDATED.value and not txn.validated_by_rule
+
+
+def _not_hand_validated() -> ColumnElement[bool]:
+    return or_(
+        Transaction.status != TransactionStatus.VALIDATED.value,
+        Transaction.validated_by_rule.is_(True),
+    )
 
 
 def _ordered_ids(left: UUID, right: UUID) -> tuple[UUID, UUID]:
@@ -70,7 +86,7 @@ def _load_candidates(
         session.execute(
             select(Transaction).where(
                 Transaction.paired_transaction_id.is_(None),
-                Transaction.status != TransactionStatus.VALIDATED.value,
+                _not_hand_validated(),
                 Transaction.currency_code.in_({txn.currency_code for txn in sources}),
                 Transaction.amount_minor.in_({-txn.amount_minor for txn in sources}),
                 Transaction.value_date
@@ -100,7 +116,7 @@ def find_proposals_for_transaction_ids(
 ) -> list[PairProposal]:
     """Propose counterpart candidates for the given transactions.
 
-    Candidates are loaded from the whole profile. Already paired or validated
+    Candidates are loaded from the whole profile. Already paired or hand-validated
     transactions and explicitly rejected pairs are excluded.
     """
     source_ids = set(transaction_ids)
@@ -112,7 +128,7 @@ def find_proposals_for_transaction_ids(
             select(Transaction).where(
                 Transaction.id.in_(source_ids),
                 Transaction.paired_transaction_id.is_(None),
-                Transaction.status != TransactionStatus.VALIDATED.value,
+                _not_hand_validated(),
             )
         ).scalars()
     )
@@ -162,9 +178,9 @@ def _require_pairable(left: Transaction, right: Transaction) -> None:
 
 
 def _require_pending(*transactions: Transaction) -> None:
-    """Raise if any transaction is already validated."""
+    """Raise if any transaction was validated by hand."""
     for txn in transactions:
-        if txn.status == TransactionStatus.VALIDATED.value:
+        if _is_hand_validated(txn):
             raise PairingError(
                 f"transaction {txn.id} is validated and cannot be changed"
             )
@@ -205,6 +221,8 @@ def confirm_pair(session: Session, left_id: UUID, right_id: UUID) -> None:
         txn.cost_center_id = None
         txn.origin = ClassificationOrigin.MANUAL.value
         txn.rule_id = None
+        txn.status = TransactionStatus.PENDING.value
+        txn.validated_by_rule = False
 
     session.commit()
 
