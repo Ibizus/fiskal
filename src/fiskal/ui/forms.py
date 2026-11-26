@@ -9,6 +9,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 
 MINOR_UNITS_PER_MAJOR = 100
+MAX_STORED_INT = 2**63 - 1
 
 
 class FormValueError(ValueError):
@@ -24,7 +25,10 @@ def parse_optional_amount_minor(text: str) -> int | None:
         amount = Decimal(cleaned)
     except InvalidOperation as exc:
         raise FormValueError(text) from exc
-    if not amount.is_finite():
+    if (
+        not amount.is_finite()
+        or abs(amount) > Decimal(MAX_STORED_INT) / MINOR_UNITS_PER_MAJOR
+    ):
         raise FormValueError(text)
     minor = amount * MINOR_UNITS_PER_MAJOR
     if minor != minor.to_integral_value():
@@ -38,9 +42,12 @@ def parse_optional_int(text: str) -> int | None:
     if not cleaned:
         return None
     try:
-        return int(cleaned)
+        value = int(cleaned)
     except ValueError as exc:
         raise FormValueError(text) from exc
+    if abs(value) > MAX_STORED_INT:
+        raise FormValueError(text)
+    return value
 
 
 def format_optional_amount(amount_minor: int | None) -> str:

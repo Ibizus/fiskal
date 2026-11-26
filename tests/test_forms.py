@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from fiskal.ui.forms import FormValueError, parse_optional_amount_minor
+from fiskal.ui.forms import (
+    MAX_STORED_INT,
+    FormValueError,
+    parse_optional_amount_minor,
+    parse_optional_int,
+)
 
 MINOR_TWELVE_THIRTY_FOUR = 1234
 MINOR_TWELVE_THIRTY = 1230
@@ -31,3 +36,22 @@ def test_amount_rejects_sub_cent_precision(text: str) -> None:
     """Amounts finer than one cent are refused instead of truncated."""
     with pytest.raises(FormValueError):
         parse_optional_amount_minor(text)
+
+
+@pytest.mark.parametrize("text", ["1e20", "-1e20", "1e999999", "92233720368547758.08"])
+def test_amount_rejects_values_too_large_to_store(text: str) -> None:
+    """Amounts beyond the stored integer range are refused."""
+    with pytest.raises(FormValueError):
+        parse_optional_amount_minor(text)
+
+
+def test_amount_accepts_largest_storable_value() -> None:
+    """The largest amount that fits the stored integer is still accepted."""
+    assert parse_optional_amount_minor("92233720368547758.07") == MAX_STORED_INT
+
+
+def test_int_rejects_values_too_large_to_store() -> None:
+    """Whole numbers beyond the stored integer range are refused."""
+    assert parse_optional_int(str(MAX_STORED_INT)) == MAX_STORED_INT
+    with pytest.raises(FormValueError):
+        parse_optional_int(str(MAX_STORED_INT + 1))
