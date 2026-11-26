@@ -16,7 +16,7 @@ from sqlalchemy import select
 from streamlit.testing.v1 import AppTest
 
 from fiskal.classification import seed_neutral_data
-from fiskal.db.models import Account, AccountHolder, Rule, Transaction
+from fiskal.db.models import Account, AccountHolder, Import, Rule, Transaction
 from fiskal.db.session import build_session_factory
 from fiskal.domain.enums import CategoryKind, TransactionStatus, TransactionType
 from fiskal.services import list_categories
@@ -373,3 +373,24 @@ def test_validate_preselects_history_type(isolated_profile: Path) -> None:
         TransactionType.SAVINGS_INVESTMENT.value
     )
     assert app.selectbox(key=f"validate_{pending_id}_category").value.id == savings_id
+
+
+def test_import_revert_shows_success_message(isolated_profile: Path) -> None:
+    """Reverting an import shows the confirmation after the page reruns."""
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        seed_neutral_data(session)
+        account = Account(name="Demo", currency_code="EUR")
+        session.add(account)
+        session.commit()
+        session.add(Import(account_id=account.id, file_name="demo.xls", file_hash="h"))
+        session.commit()
+
+    app = AppTest.from_file(str(PAGES_DIR / "1_Import.py")).run()
+    revert = next(b for b in app.button if b.label == "Revert import")
+    revert.click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert "Import reverted." in [s.value for s in app.success]
+    with factory() as session:
+        assert session.execute(select(Import)).first() is None

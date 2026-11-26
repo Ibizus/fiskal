@@ -169,6 +169,8 @@ def _render_import(session: Session) -> None:
 
 
 def _render_revert(session: Session) -> None:
+    if st.session_state.pop("import_reverted", False):
+        st.success(translate("import.revert_success"))
     imports = list_imports(session)
     if not imports:
         return
@@ -187,7 +189,7 @@ def _render_revert(session: Session) -> None:
             st.error(f"{translate('import.revert_error')} {exc}")
             return
         st.session_state.pop("import_summary", None)
-        st.success(translate("import.revert_success"))
+        st.session_state["import_reverted"] = True
         st.rerun()
 
 
