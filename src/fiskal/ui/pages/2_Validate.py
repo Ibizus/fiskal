@@ -50,8 +50,7 @@ def _default_type_value(txn: Transaction) -> str:
     return TransactionType.EXPENSE.value
 
 
-def _type_index(txn: Transaction) -> int:
-    value = txn.transaction_type
+def _type_index(txn: Transaction, value: str) -> int:
     if value not in _TYPE_OPTIONS:
         value = _default_type_value(txn)
     return _TYPE_OPTIONS.index(value)
@@ -100,7 +99,9 @@ def _render_transaction(
     suggestion = suggest_from_history(session, txn.id)
     category_id = txn.category_id
     cost_center_id = txn.cost_center_id
+    type_value = txn.transaction_type
     if suggestion is not None and category_id is None:
+        type_value = suggestion.preselected.transaction_type.value
         category_id = suggestion.preselected.category_id
         if cost_center_id is None:
             cost_center_id = suggestion.preselected.cost_center_id
@@ -124,7 +125,7 @@ def _render_transaction(
         chosen_type = st.selectbox(
             translate("validate.type"),
             _TYPE_OPTIONS,
-            index=_type_index(txn),
+            index=_type_index(txn, type_value),
             format_func=transaction_type_label,
             key=f"validate_{txn.id}_type",
         )

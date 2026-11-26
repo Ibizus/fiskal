@@ -341,3 +341,35 @@ def test_transactions_page_reports_limit(isolated_profile: Path) -> None:
         "Showing only the 500 most recent matching movements." in caption.value
         for caption in app.caption
     )
+
+
+def test_validate_preselects_history_type(isolated_profile: Path) -> None:
+    """An applied history suggestion also preselects its transaction type."""
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        seed_neutral_data(session)
+        account = Account(name="Demo", currency_code="EUR")
+        session.add(account)
+        session.commit()
+        savings = next(
+            category
+            for category in list_categories(session)
+            if category.name_key == "category.savings"
+        )
+        history = _add_pending(session, account, amount_minor=-2000, identity="old")
+        history.transaction_type = TransactionType.SAVINGS_INVESTMENT.value
+        history.category_id = savings.id
+        history.status = TransactionStatus.VALIDATED.value
+        session.commit()
+        savings_id = savings.id
+        pending_id = _add_pending(
+            session, account, amount_minor=-3000, identity="new", day=20
+        ).id
+
+    app = AppTest.from_file(str(PAGES_DIR / "2_Validate.py")).run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert app.selectbox(key=f"validate_{pending_id}_type").value == (
+        TransactionType.SAVINGS_INVESTMENT.value
+    )
+    assert app.selectbox(key=f"validate_{pending_id}_category").value.id == savings_id
