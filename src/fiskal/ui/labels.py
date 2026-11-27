@@ -67,6 +67,13 @@ def help_text(name_key: str | None) -> str:
     return "" if text == f"[{key}]" else text
 
 
+def description_text(item: Category | CostCenter | None) -> str:
+    """Return an item's description: its own text, else the seed default."""
+    if item is None:
+        return ""
+    return item.description or help_text(item.name_key)
+
+
 def status_marker(is_active: bool) -> str:
     """Return the marker shown next to an item that is deactivated."""
     return "" if is_active else f"({translate('settings.inactive')})"

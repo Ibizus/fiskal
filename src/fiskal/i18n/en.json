@@ -250,5 +250,14 @@
   "guided.undo_rows_limit": "Showing the {shown} most recent movements of this group.",
   "guided.undone": "{count} movements returned to pending.",
   "guided.undone_rule": "The rule created with the group was deactivated.",
-  "guided.undone_skipped": "{count} movements were changed after the group was validated and were left as they are."
+  "guided.undone_skipped": "{count} movements were changed after the group was validated and were left as they are.",
+  "settings.description": "Description (optional)",
+  "settings.description_help": "Say what belongs here, for example \"fuel\" or \"electricity, water and internet\". Leave it empty to keep the default description of a default item.",
+  "settings.error.description_too_long": "The description must have at most {max} characters.",
+  "transactions.all_categories": "All categories",
+  "transactions.all_cost_centers": "All cost centers",
+  "transactions.nature": "Fixed or variable",
+  "transactions.all_natures": "Fixed and variable",
+  "transactions.nature.fixed": "Fixed",
+  "transactions.nature.variable": "Variable"
 }

@@ -37,12 +37,15 @@ from fiskal.domain.enums import CategoryKind, TransactionStatus, TransactionType
 from fiskal.i18n import set_active_locale
 from fiskal.profile_settings import get_language, set_language
 from fiskal.services import list_categories
+from tests.support.factories import _account, _transaction
 
 UI_DIR = Path(__file__).resolve().parents[1] / "src" / "fiskal" / "ui"
 LAUNCHER = UI_DIR / "launcher.py"
 PAGES_DIR = UI_DIR / "pages"
 QUEUE_PAGE_SIZE = 25
 PRORATION_MONTHS = 12
+EXPECTED_ALL_ROWS = 3
+EXPECTED_HOME_ROWS = 2
 
 
 def test_home_page_renders_empty_profile(isolated_profile: Path) -> None:
@@ -814,3 +817,99 @@ def test_default_language_when_unset(isolated_profile: Path) -> None:
 
     assert app.sidebar.selectbox(key="language_selector").value == "en"
     assert "Home" in [h.value for h in app.header]
+
+
+def test_settings_edits_cost_center_description(isolated_profile: Path) -> None:
+    """A description typed in Settings is saved and shown under the item."""
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    app.text_input[0].input("Home")
+    app.text_area(key="settings_cost_center_create_description").input("Rent")
+    app.button(key="settings_cost_center_create_submit").click().run()
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        home = session.execute(
+            select(CostCenter).where(CostCenter.custom_name == "Home")
+        ).scalar_one()
+    assert home.description == "Rent"
+
+    field = app.text_area(key=f"settings_cc_{home.id}_description")
+    field.input("Rent, electricity and groceries")
+    app.button(key=f"FormSubmitter:settings_cc_{home.id}_rename-Save").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    with factory() as session:
+        stored = session.get(CostCenter, home.id)
+        assert stored.description == "Rent, electricity and groceries"
+    assert "Rent, electricity and groceries" in [c.value for c in app.caption]
+
+
+def test_settings_edits_category_description(isolated_profile: Path) -> None:
+    """A seed category keeps its name and gains its own description."""
+    app = AppTest.from_file(str(SETTINGS_PAGE)).run()
+    _open_section(app, "categories")
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        seeded = session.execute(
+            select(Category).where(Category.name_key == "category.food")
+        ).scalar_one()
+    app.text_area(key=f"settings_cat_{seeded.id}_description").input("Only groceries")
+    app.button(key=f"FormSubmitter:settings_cat_{seeded.id}_edit-Save").click().run()
+
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    with factory() as session:
+        stored = session.get(Category, seeded.id)
+        assert stored.description == "Only groceries"
+        assert stored.custom_name is None
+    assert "Only groceries" in [c.value for c in app.caption]
+
+
+def test_transactions_page_filters_by_catalog(isolated_profile: Path) -> None:
+    """Category, cost center and fixed/variable filters narrow the table."""
+    factory = build_session_factory(_profile_url(isolated_profile))
+    with factory() as session:
+        seed_neutral_data(session)
+        account = _account(session)
+        rent = Category(
+            custom_name="Home rent", kind="expense", nature="fixed", is_active=True
+        )
+        food = Category(
+            custom_name="Home food", kind="expense", nature="variable", is_active=True
+        )
+        session.add_all([rent, food])
+        session.commit()
+        home = create_cost_center(session, "Home", "Household costs")
+        _transaction(
+            session,
+            account=account,
+            description="rent a",
+            category=rent,
+            cost_center=home,
+        )
+        _transaction(
+            session,
+            account=account,
+            description="food b",
+            category=food,
+            cost_center=home,
+        )
+        _transaction(session, account=account, description="other c")
+
+    app = AppTest.from_file(str(PAGES_DIR / "3_Transactions.py")).run()
+    assert len(app.dataframe[0].value) == EXPECTED_ALL_ROWS
+
+    app.selectbox(key="transactions_nature").select("fixed").run()
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert app.dataframe[0].value["Description"].tolist() == ["rent a"]
+
+    app.selectbox(key="transactions_nature").select(None).run()
+    category_box = app.selectbox(key="transactions_category")
+    category_box.select_index(list(category_box.options).index("Home food")).run()
+    assert app.dataframe[0].value["Description"].tolist() == ["food b"]
+
+    app.selectbox(key="transactions_category").select_index(0).run()
+    center_box = app.selectbox(key="transactions_cost_center")
+    center_box.select_index(list(center_box.options).index("Home")).run()
+    assert not app.exception, f"App raised an exception: {app.exception}"
+    assert len(app.dataframe[0].value) == EXPECTED_HOME_ROWS
+    assert "Household costs" in [c.value for c in app.caption]

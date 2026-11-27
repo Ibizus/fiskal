@@ -250,5 +250,14 @@
   "guided.undo_rows_limit": "Mostrando los {shown} movimientos más recientes de este grupo.",
   "guided.undone": "{count} movimientos devueltos a pendiente.",
   "guided.undone_rule": "La regla creada con el grupo se desactivó.",
-  "guided.undone_skipped": "{count} movimientos cambiaron después de validar el grupo y se dejaron como están."
+  "guided.undone_skipped": "{count} movimientos cambiaron después de validar el grupo y se dejaron como están.",
+  "settings.description": "Descripción (opcional)",
+  "settings.description_help": "Indica qué incluye, por ejemplo «combustible» o «luz, agua e internet». Déjala vacía para conservar la descripción por defecto de un elemento predeterminado.",
+  "settings.error.description_too_long": "La descripción debe tener como máximo {max} caracteres.",
+  "transactions.all_categories": "Todas las categorías",
+  "transactions.all_cost_centers": "Todos los centros de coste",
+  "transactions.nature": "Fijo o variable",
+  "transactions.all_natures": "Fijos y variables",
+  "transactions.nature.fixed": "Fijo",
+  "transactions.nature.variable": "Variable"
 }

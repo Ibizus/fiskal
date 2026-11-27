@@ -139,6 +139,7 @@ class CostCenter(Base):
     name_key: Mapped[str | None] = mapped_column(String(255))
     custom_name: Mapped[str | None] = mapped_column(String(255))
     group_label: Mapped[str | None] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(String(1000))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     attributes: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
 
@@ -158,6 +159,7 @@ class Category(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     name_key: Mapped[str | None] = mapped_column(String(255))
     custom_name: Mapped[str | None] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(String(1000))
     kind: Mapped[str] = mapped_column(String(10))
     nature: Mapped[str] = mapped_column(String(10))
     income_source: Mapped[str | None] = mapped_column(String(10))
