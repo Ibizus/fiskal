@@ -101,10 +101,11 @@ class GroupOutcome:
     """Result of confirming a group.
 
     ``validated_count`` is the number of movements of the group that were
-    validated (by the rule when one was created). ``rule`` is the rule created
-    with the group, if any, and
-    ``rule_validated_count`` is how many pending movements outside the group
-    that rule validated automatically.
+    validated: by the rule when one was created and the group sets no person,
+    by hand otherwise (a group with a person keeps it as a manual attribution,
+    and its rule only covers other and future movements). ``rule`` is the rule
+    created with the group, if any, and ``rule_validated_count`` is how many
+    pending movements outside the group that rule validated automatically.
     """
 
     action: GuidedAction

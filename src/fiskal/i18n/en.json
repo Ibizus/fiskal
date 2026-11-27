@@ -232,7 +232,7 @@
   "guided.affected": "This will classify {count} pending movements.",
   "guided.affected_with_rule": "This will classify {count} pending movements: {group} of this group and {others} more that the rule also validates.",
   "guided.create_rule": "Also create a rule for this description",
-  "guided.create_rule_help": "Creates a rule from the pattern below. It validates the movements of this group and the other pending movements it matches, and classifies future imports. Leave it unchecked to validate only these movements, by hand.",
+  "guided.create_rule_help": "Creates a rule from the pattern below, with the category and cost center but never a holder. It validates the movements of this group and the other pending movements it matches, and classifies future imports. When a holder is chosen, this group's movements are validated by hand to keep the holder, and the rule only covers the other and future movements. Leave it unchecked to validate only these movements, by hand.",
   "guided.submit": "Classify the group",
   "guided.submit_help": "Validates every pending movement of this group with the type, category, cost center and holder shown above.",
   "guided.confirmed": "{count} movements validated.",

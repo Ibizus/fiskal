@@ -232,7 +232,7 @@
   "guided.affected": "Esto clasificará {count} movimientos pendientes.",
   "guided.affected_with_rule": "Esto clasificará {count} movimientos pendientes: {group} de este grupo y {others} más que también valida la regla.",
   "guided.create_rule": "Crear también una regla para esta descripción",
-  "guided.create_rule_help": "Crea una regla con el patrón de abajo. Valida los movimientos de este grupo y los demás movimientos pendientes que coincidan, y clasifica las próximas importaciones. Déjalo sin marcar para validar solo estos movimientos, a mano.",
+  "guided.create_rule_help": "Crea una regla con el patrón de abajo, con la categoría y el centro de coste pero nunca un titular. Valida los movimientos de este grupo y los demás movimientos pendientes que coincidan, y clasifica las próximas importaciones. Si eliges un titular, los movimientos de este grupo se validan a mano para conservarlo y la regla solo cubre los demás movimientos y los futuros. Déjalo sin marcar para validar solo estos movimientos, a mano.",
   "guided.submit": "Clasificar el grupo",
   "guided.submit_help": "Valida todos los movimientos pendientes de este grupo con el tipo, la categoría, el centro de coste y el titular de arriba.",
   "guided.confirmed": "{count} movimientos validados.",
