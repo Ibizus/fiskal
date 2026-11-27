@@ -140,3 +140,45 @@ def _transaction(
     session.add(txn)
     session.commit()
     return txn
+
+
+def _bulk_transactions(
+    session: Session,
+    *,
+    account: Account,
+    description: str,
+    count: int,
+    amount_minor: int = -1000,
+    status: TransactionStatus = TransactionStatus.PENDING,
+    tag: str = "",
+) -> list[Transaction]:
+    """Insert ``count`` synthetic rows with one commit, for volume tests.
+
+    Dates cycle through the days of one year so rows differ; ``tag`` keeps the
+    identity keys of several calls with the same description apart.
+    """
+    rows = [
+        Transaction(
+            account_id=account.id,
+            operation_date=date(2024, 1 + index % 12, 1 + index % 28),
+            value_date=date(2024, 1 + index % 12, 1 + index % 28),
+            original_description=description,
+            normalized_description=description,
+            counterparty=None,
+            amount_minor=amount_minor,
+            balance_minor=0,
+            currency_code="EUR",
+            transaction_type=(
+                TransactionType.INCOME.value
+                if amount_minor >= 0
+                else TransactionType.EXPENSE.value
+            ),
+            origin=ClassificationOrigin.MANUAL.value,
+            status=status.value,
+            identity_key=f"{description}|{tag}|{index}|{uuid4()}",
+        )
+        for index in range(count)
+    ]
+    session.add_all(rows)
+    session.commit()
+    return rows

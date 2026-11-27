@@ -719,7 +719,7 @@ def test_upgrade_populated_profile_from_previous_revision(tmp_path: Path) -> Non
     _run_alembic(db_path, "upgrade", "head")
 
     current = _run_alembic(db_path, "current")
-    assert "d5e9a2c7f418 (head)" in current.stdout
+    assert "e1a7c4b9d302 (head)" in current.stdout
     _run_alembic(db_path, "check")
     with make_engine(f"sqlite:///{db_path}").connect() as connection:
         rule_category = connection.exec_driver_sql(
@@ -737,13 +737,13 @@ def test_downgrade_with_rule_validated_rows_is_refused(tmp_path: Path) -> None:
     """The validated-by-rule marker cannot be dropped while rows carry it."""
     db_path = tmp_path / "marked.db"
     _run_alembic(db_path, "upgrade", "head")
-    _run_alembic(db_path, "downgrade", "b7d4e1f20a93")
     session = sessionmaker(bind=make_engine(f"sqlite:///{db_path}"))()
     account = _make_account(session)
     txn = _make_transaction(session, account=account, identity_key="marked")
     txn.validated_by_rule = True
     session.commit()
     session.close()
+    _run_alembic(db_path, "downgrade", "b7d4e1f20a93")
 
     result = _run_alembic(db_path, "downgrade", "-1", check=False)
 
@@ -761,14 +761,14 @@ def test_downgrade_without_rule_validated_rows_drops_marker(tmp_path: Path) -> N
     _run_alembic(db_path, "downgrade", "-1")
     _run_alembic(db_path, "upgrade", "head")
 
-    assert "d5e9a2c7f418 (head)" in _run_alembic(db_path, "current").stdout
+    assert "e1a7c4b9d302 (head)" in _run_alembic(db_path, "current").stdout
     _run_alembic(db_path, "check")
 
 
 def test_downgrade_with_profile_settings_is_refused(tmp_path: Path) -> None:
     """Saved profile settings cannot be dropped by a downgrade."""
     db_path = tmp_path / "settings.db"
-    _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "upgrade", "d5e9a2c7f418")
     engine = make_engine(f"sqlite:///{db_path}")
     with engine.begin() as connection:
         connection.exec_driver_sql(
@@ -780,15 +780,49 @@ def test_downgrade_with_profile_settings_is_refused(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "profile settings" in result.stderr
-    assert "d5e9a2c7f418 (head)" in _run_alembic(db_path, "current").stdout
+    assert "d5e9a2c7f418" in _run_alembic(db_path, "current").stdout
 
 
 def test_downgrade_without_profile_settings_drops_table(tmp_path: Path) -> None:
     """With no saved settings the table is dropped and re-created cleanly."""
     db_path = tmp_path / "empty-settings.db"
-    _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "upgrade", "d5e9a2c7f418")
 
     _run_alembic(db_path, "downgrade", "-1")
     _run_alembic(db_path, "upgrade", "head")
 
+    _run_alembic(db_path, "check")
+
+
+def test_downgrade_with_guided_actions_is_refused(tmp_path: Path) -> None:
+    """The guided action history cannot be dropped while actions exist."""
+    db_path = tmp_path / "guided.db"
+    _run_alembic(db_path, "upgrade", "head")
+    engine = make_engine(f"sqlite:///{db_path}")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO guided_actions (id, created_at, normalized_description, "
+            "direction, row_count) VALUES (?, '2024-01-01 00:00:00', 'x', "
+            "'expense', 2)",
+            (uuid4().hex,),
+        )
+    engine.dispose()
+
+    result = _run_alembic(db_path, "downgrade", "-1", check=False)
+
+    assert result.returncode != 0
+    assert "guided action history" in result.stderr
+    assert "e1a7c4b9d302 (head)" in _run_alembic(db_path, "current").stdout
+
+
+def test_downgrade_without_guided_actions_drops_link(tmp_path: Path) -> None:
+    """With no actions the table and link column are dropped and re-added."""
+    db_path = tmp_path / "no-guided.db"
+    _run_alembic(db_path, "upgrade", "head")
+
+    _run_alembic(db_path, "downgrade", "-1")
+    assert "guided_actions" not in _table_names(db_path)
+    _run_alembic(db_path, "upgrade", "head")
+
+    assert "guided_actions" in _table_names(db_path)
     _run_alembic(db_path, "check")

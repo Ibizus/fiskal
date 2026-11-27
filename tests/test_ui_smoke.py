@@ -37,22 +37,12 @@ from fiskal.domain.enums import CategoryKind, TransactionStatus, TransactionType
 from fiskal.i18n import set_active_locale
 from fiskal.profile_settings import get_language, set_language
 from fiskal.services import list_categories
-from fiskal.ui.session import _session_factory
 
 UI_DIR = Path(__file__).resolve().parents[1] / "src" / "fiskal" / "ui"
 LAUNCHER = UI_DIR / "launcher.py"
 PAGES_DIR = UI_DIR / "pages"
 QUEUE_PAGE_SIZE = 25
 PRORATION_MONTHS = 12
-
-
-@pytest.fixture
-def isolated_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Point the cached session factory at a fresh temporary database."""
-    monkeypatch.setenv("FISKAL_DB_URL", f"sqlite:///{tmp_path / 'profile.db'}")
-    _session_factory.clear()
-    yield tmp_path
-    _session_factory.clear()
 
 
 def test_home_page_renders_empty_profile(isolated_profile: Path) -> None:

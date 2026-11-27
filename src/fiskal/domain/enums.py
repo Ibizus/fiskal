@@ -74,3 +74,14 @@ class IncomeSource(StrEnum):
     BENEFIT = "benefit"
     RENTAL = "rental"
     OTHER = "other"
+
+
+class GroupDirection(StrEnum):
+    """Which side of the books a guided-mode group of movements is on.
+
+    Income and expense groups stay apart even when their descriptions match:
+    a refund from a shop is not the same concept as a purchase there.
+    """
+
+    INCOME = "income"
+    EXPENSE = "expense"
