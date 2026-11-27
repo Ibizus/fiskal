@@ -30,7 +30,11 @@ keep transactions, and report by category and cost center.
    Settings page: cost centers, categories, rules and the interface language
    are configurable from the interface. Follow-ups: recurring templates
    management, detector thresholds, accounts editing.
-8. Transactions page with filters (account, type, status and text search).
+8. Transactions page with filters (account, type, status, category, cost
+   center, fixed or variable, and text search). Cost centers and categories
+   have an optional description editable in Settings. Follow-ups: apply the
+   same filters to the reports once they exist, per-language names for items
+   the owner creates, subcategories.
    Manual entries and recurring templates remain to be built.
 9. Reports and proration (cash view vs real-cost view).
 10. Month close, recurring-charge detector and manual backup.

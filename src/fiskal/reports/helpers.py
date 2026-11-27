@@ -12,7 +12,7 @@ from uuid import UUID
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from fiskal.db.models import Transaction
+from fiskal.db.models import Category, Transaction
 from fiskal.domain.enums import TransactionType
 
 _INCOME_EXPENSE_TYPES = (
@@ -56,6 +56,9 @@ class TransactionFilter:
     status: str | None = None
     validated_by_rule: bool | None = None
     query: str | None = None
+    category_id: UUID | None = None
+    cost_center_id: UUID | None = None
+    nature: str | None = None  # "fixed" or "variable", from the category
 
 
 def list_transactions(
@@ -67,7 +70,8 @@ def list_transactions(
     """Return transactions matching ``filters``, newest first.
 
     ``query`` is a case-insensitive substring match over the normalized
-    description and the counterparty.
+    description and the counterparty. ``nature`` keeps only movements whose
+    category is fixed or variable; unclassified movements never match it.
     """
     filters = filters or TransactionFilter()
     statement = select(Transaction)
@@ -82,6 +86,18 @@ def list_transactions(
     if filters.validated_by_rule is not None:
         statement = statement.where(
             Transaction.validated_by_rule.is_(filters.validated_by_rule)
+        )
+    if filters.category_id is not None:
+        statement = statement.where(Transaction.category_id == filters.category_id)
+    if filters.cost_center_id is not None:
+        statement = statement.where(
+            Transaction.cost_center_id == filters.cost_center_id
+        )
+    if filters.nature is not None:
+        statement = statement.where(
+            Transaction.category_id.in_(
+                select(Category.id).where(Category.nature == filters.nature)
+            )
         )
     if filters.query:
         needle = f"%{filters.query.strip().lower()}%"

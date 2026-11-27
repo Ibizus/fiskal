@@ -6,8 +6,8 @@ import streamlit as st
 from sqlalchemy.orm import Session
 
 from fiskal.classification import ValidationError, return_to_queue
-from fiskal.db.models import Transaction
-from fiskal.domain.enums import TransactionStatus, TransactionType
+from fiskal.db.models import Category, CostCenter, Transaction
+from fiskal.domain.enums import CategoryNature, TransactionStatus, TransactionType
 from fiskal.i18n import translate
 from fiskal.reports.helpers import TransactionFilter, list_transactions
 from fiskal.services import (
@@ -19,6 +19,7 @@ from fiskal.services import (
 from fiskal.ui.labels import (
     category_label,
     cost_center_label,
+    description_text,
     format_minor,
     person_label,
     status_label,
@@ -45,6 +46,7 @@ _STATUS_OPTIONS = [
     TransactionStatus.VALIDATED.value,
     VALIDATED_BY_RULE,
 ]
+_NATURE_OPTIONS = [None, CategoryNature.FIXED.value, CategoryNature.VARIABLE.value]
 LIST_LIMIT = 500
 
 
@@ -60,6 +62,49 @@ def _status_option_label(value: str | None) -> str:
     if value == VALIDATED_BY_RULE:
         return translate("status.validated_by_rule")
     return status_label(value)
+
+
+def _nature_option_label(value: str | None) -> str:
+    if value is None:
+        return translate("transactions.all_natures")
+    return translate(f"transactions.nature.{value}")
+
+
+def _render_catalog_filters(
+    session: Session,
+) -> tuple[Category | None, CostCenter | None, str | None]:
+    """Draw the category, cost center and fixed/variable filters."""
+    category = st.selectbox(
+        translate("transactions.category"),
+        [None, *list_categories(session, active_only=False)],
+        format_func=lambda value: (
+            translate("transactions.all_categories")
+            if value is None
+            else category_label(value)
+        ),
+        key="transactions_category",
+    )
+    cost_center = st.selectbox(
+        translate("transactions.cost_center"),
+        [None, *list_cost_centers(session, active_only=False)],
+        format_func=lambda value: (
+            translate("transactions.all_cost_centers")
+            if value is None
+            else cost_center_label(value)
+        ),
+        key="transactions_cost_center",
+    )
+    for chosen in (category, cost_center):
+        shown = description_text(chosen)
+        if shown:
+            st.caption(shown)
+    nature = st.selectbox(
+        translate("transactions.nature"),
+        _NATURE_OPTIONS,
+        format_func=_nature_option_label,
+        key="transactions_nature",
+    )
+    return category, cost_center, nature
 
 
 def _row_status_label(txn: Transaction) -> str:
@@ -122,6 +167,7 @@ def _render_table(session: Session) -> None:
         format_func=_status_option_label,
         key="transactions_status",
     )
+    category, cost_center, nature = _render_catalog_filters(session)
     query = st.text_input(translate("transactions.search"), key="transactions_query")
 
     by_rule = chosen_status == VALIDATED_BY_RULE
@@ -131,6 +177,9 @@ def _render_table(session: Session) -> None:
         status=TransactionStatus.VALIDATED.value if by_rule else chosen_status,
         validated_by_rule=True if by_rule else None,
         query=query or None,
+        category_id=category.id if category is not None else None,
+        cost_center_id=cost_center.id if cost_center is not None else None,
+        nature=nature,
     )
     transactions = list_transactions(session, filters, limit=LIST_LIMIT)
     if not transactions:

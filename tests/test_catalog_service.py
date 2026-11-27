@@ -18,12 +18,18 @@ from fiskal.classification import (
     set_category_active,
     set_cost_center_active,
     update_category,
+    update_cost_center,
 )
 from fiskal.db.models import Category, CostCenter
 from fiskal.domain.enums import CategoryKind
 from fiskal.domain.seed import DEFAULT_CATEGORIES, DEFAULT_COST_CENTERS
 from fiskal.i18n import translate
-from fiskal.ui.labels import category_label, cost_center_label, help_text
+from fiskal.ui.labels import (
+    category_label,
+    cost_center_label,
+    description_text,
+    help_text,
+)
 from tests.support.factories import (
     _account,
     _category,
@@ -334,3 +340,61 @@ def test_seed_items_have_help_text() -> None:
             assert not translate(f"{item.key}.help", locale).startswith("[")
     assert help_text(None) == ""
     assert help_text("category.housing") == translate("category.housing.help")
+
+
+def test_cost_center_description_is_stored_trimmed(session: Session) -> None:
+    """A created cost center keeps its trimmed description; blank is none."""
+    described = create_cost_center(session, "Home", "  Rent and bills.  ")
+    plain = create_cost_center(session, "Car", "   ")
+
+    assert described.description == "Rent and bills."
+    assert plain.description is None
+    assert description_text(described) == "Rent and bills."
+
+
+def test_update_cost_center_edits_description_of_seed_item(session: Session) -> None:
+    """A seed item gets its own description; clearing it restores the default."""
+    seed_neutral_data(session)
+    seeded = session.query(CostCenter).filter(CostCenter.name_key.is_not(None)).first()
+    assert seeded is not None
+    default_text = description_text(seeded)
+    assert default_text
+    name = cost_center_label(seeded)
+
+    update_cost_center(session, seeded.id, name, "My own text")
+    assert seeded.description == "My own text"
+    assert seeded.custom_name is None
+    assert description_text(seeded) == "My own text"
+
+    update_cost_center(session, seeded.id, name, "")
+    assert seeded.description is None
+    assert description_text(seeded) == default_text
+
+
+def test_description_too_long_is_rejected(session: Session) -> None:
+    """A description beyond the limit is refused and nothing is written."""
+    with pytest.raises(CatalogError) as caught:
+        create_cost_center(session, "Home", "x" * 1001)
+
+    assert caught.value.key == "settings.error.description_too_long"
+    assert session.query(CostCenter).count() == 0
+
+
+def test_category_description_create_and_update(session: Session) -> None:
+    """Category descriptions are stored on create and replaced on update."""
+    created = create_category(session, _spec(description=" Fuel only "))
+    assert created.description == "Fuel only"
+    assert description_text(created) == "Fuel only"
+
+    update_category(session, created.id, _spec(description=None))
+    assert created.description is None
+    assert description_text(created) == ""
+
+
+def test_description_text_falls_back_to_seed_help(session: Session) -> None:
+    """Without an own description a seed item resolves its translated help."""
+    seed_neutral_data(session)
+    seeded = session.query(Category).filter(Category.name_key.is_not(None)).first()
+    assert seeded is not None
+    assert description_text(seeded) == help_text(seeded.name_key)
+    assert description_text(None) == ""

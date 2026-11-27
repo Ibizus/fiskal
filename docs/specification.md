@@ -101,6 +101,12 @@ commits.
 Each transaction carries three independent labels: **type** (its effect),
 **cost center** (who or what it belongs to) and **category** (what it is).
 Fixed or variable derives from the category and is never labeled by hand.
+A cost center is a set of transactions analysed as a whole; a category is a
+type of transaction. Both carry an optional free-text `description` the owner
+edits in Settings. Default items resolve their description through the
+translation catalog while the row has none of its own; an owner-written
+description takes precedence. Names and descriptions the owner writes are not
+translated.
 
 Amounts are stored as integer minor units (for example cents) together with an
 ISO currency code per transaction. Calculations such as proration use integer
@@ -143,9 +149,9 @@ Main tables (field names match the v1 schema):
   classified it, when a rule did), `validated_by_rule` (audit marker for a
   transaction a user rule validated automatically; see the classification
   pipeline).
-- **cost_centers**: id, `name_key`, optional `custom_name`, `group_label`,
+- **cost_centers**: id, `name_key`, optional `custom_name`, optional `description`, `group_label`,
   `is_active`, `attributes`.
-- **categories**: id, `name_key`, optional `custom_name`, `kind` (income or
+- **categories**: id, `name_key`, optional `custom_name`, optional `description`, `kind` (income or
   expense), `nature` (fixed / variable), optional `income_source` (work /
   benefit / rental / other; only meaningful for income categories),
   `default_proration_months`, `is_active`.
@@ -358,7 +364,9 @@ Six Streamlit pages in the core:
    type, cost center, category, proration period and note; validate,
    validate selected, create rule.
 3. **Transactions**: filterable table with editing and manual entries; default
-   view merges all accounts, with a filter for one or several accounts.
+   view merges all accounts, with a filter for one or several accounts. Further
+   filters: type, status, category, cost center, fixed or variable (from the
+   category) and text; all combine.
 4. **Overview**: current month against the 12-month average; default view merges
    all accounts, with a filter for one or several accounts; fixed and variable
    spending; savings; active notices; newly detected recurrences.

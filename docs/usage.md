@@ -44,8 +44,10 @@ The working pages:
   percentage already classified. A **View** selector switches between the queue
   above and the guided **By concept** view, meant for classifying years of
   imported history in blocks (see below).
-- **Transactions** — list transactions with filters for account, type, status
-  and a text search over the description and counterparty. The status filter
+- **Transactions** — list transactions with filters for account, type, status,
+  category, cost center, fixed or variable (taken from the category) and a
+  text search over the description and counterparty. The filters combine, and
+  the description of the chosen category and cost center is shown under them. The status filter
   has a **Validated by rule** option to review what your rules validated
   automatically; there you can send a movement back to the Validate queue. To
   correct one, send it back and validate it again: it then stays manual. Only the 500 most
@@ -57,7 +59,13 @@ The working pages:
   its kind (income or expense), fixed or variable, the income source for
   income categories (work, benefit, rental, other) and the default proration
   months; deactivate and reactivate it. Default items show a short description
-  of what they are for. *Rules*: list every rule (yours first, then the default
+  of what they are for. Cost centers and categories have an optional
+  **Description** when you create or edit them. Use it to say what belongs
+  there (for example "fuel" for a transport category, or "electricity, water
+  and internet" for a services category); a description you write replaces the
+  default one of a default item, and clearing it restores the default. Names
+  and descriptions you write are shown as typed and are not translated when you
+  change the interface language. *Rules*: list every rule (yours first, then the default
   rules), edit one explicitly, deactivate and reactivate it. A rule change
   reclassifies only pending movements; validated movements never change.
   Nothing is ever deleted: an item used by movements or rules is deactivated,

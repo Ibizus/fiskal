@@ -719,7 +719,7 @@ def test_upgrade_populated_profile_from_previous_revision(tmp_path: Path) -> Non
     _run_alembic(db_path, "upgrade", "head")
 
     current = _run_alembic(db_path, "current")
-    assert "e1a7c4b9d302 (head)" in current.stdout
+    assert "f2b8d6a4c1e7 (head)" in current.stdout
     _run_alembic(db_path, "check")
     with make_engine(f"sqlite:///{db_path}").connect() as connection:
         rule_category = connection.exec_driver_sql(
@@ -761,7 +761,7 @@ def test_downgrade_without_rule_validated_rows_drops_marker(tmp_path: Path) -> N
     _run_alembic(db_path, "downgrade", "-1")
     _run_alembic(db_path, "upgrade", "head")
 
-    assert "e1a7c4b9d302 (head)" in _run_alembic(db_path, "current").stdout
+    assert "f2b8d6a4c1e7 (head)" in _run_alembic(db_path, "current").stdout
     _run_alembic(db_path, "check")
 
 
@@ -797,7 +797,7 @@ def test_downgrade_without_profile_settings_drops_table(tmp_path: Path) -> None:
 def test_downgrade_with_guided_actions_is_refused(tmp_path: Path) -> None:
     """The guided action history cannot be dropped while actions exist."""
     db_path = tmp_path / "guided.db"
-    _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "upgrade", "e1a7c4b9d302")
     engine = make_engine(f"sqlite:///{db_path}")
     with engine.begin() as connection:
         connection.exec_driver_sql(
@@ -812,13 +812,13 @@ def test_downgrade_with_guided_actions_is_refused(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "guided action history" in result.stderr
-    assert "e1a7c4b9d302 (head)" in _run_alembic(db_path, "current").stdout
+    assert "e1a7c4b9d302" in _run_alembic(db_path, "current").stdout
 
 
 def test_downgrade_without_guided_actions_drops_link(tmp_path: Path) -> None:
     """With no actions the table and link column are dropped and re-added."""
     db_path = tmp_path / "no-guided.db"
-    _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "upgrade", "e1a7c4b9d302")
 
     _run_alembic(db_path, "downgrade", "-1")
     assert "guided_actions" not in _table_names(db_path)
@@ -826,3 +826,56 @@ def test_downgrade_without_guided_actions_drops_link(tmp_path: Path) -> None:
 
     assert "guided_actions" in _table_names(db_path)
     _run_alembic(db_path, "check")
+
+
+_DESCRIPTION_REVISION = "f2b8d6a4c1e7"
+_BEFORE_DESCRIPTION_REVISION = "e1a7c4b9d302"
+
+
+def _columns(db_path: Path, table: str) -> set[str]:
+    with make_engine(f"sqlite:///{db_path}").connect() as connection:
+        rows = connection.exec_driver_sql(f"PRAGMA table_info({table})")
+        return {row[1] for row in rows}
+
+
+def test_description_migration_round_trip(tmp_path: Path) -> None:
+    """The description columns appear on upgrade and vanish on a clean downgrade."""
+    db_path = tmp_path / "descriptions.db"
+    _run_alembic(db_path, "upgrade", "head")
+    assert "description" in _columns(db_path, "cost_centers")
+    assert "description" in _columns(db_path, "categories")
+
+    _run_alembic(db_path, "downgrade", _BEFORE_DESCRIPTION_REVISION)
+    assert "description" not in _columns(db_path, "cost_centers")
+    assert "description" not in _columns(db_path, "categories")
+
+    _run_alembic(db_path, "upgrade", "head")
+    _run_alembic(db_path, "check")
+
+
+@pytest.mark.parametrize("table", ["cost_centers", "categories"])
+def test_description_downgrade_with_text_is_refused(tmp_path: Path, table: str) -> None:
+    """A written description blocks the downgrade instead of being discarded."""
+    db_path = tmp_path / "described.db"
+    _run_alembic(db_path, "upgrade", "head")
+    with make_engine(f"sqlite:///{db_path}").begin() as connection:
+        if table == "cost_centers":
+            connection.exec_driver_sql(
+                "INSERT INTO cost_centers (id, custom_name, description, is_active, "
+                "attributes) VALUES (?, 'Home', 'Rent and bills', 1, '{}')",
+                (uuid4().hex,),
+            )
+        else:
+            connection.exec_driver_sql(
+                "INSERT INTO categories (id, custom_name, description, kind, "
+                "nature, is_active) VALUES (?, 'Fuel', 'Fuel only', 'expense', "
+                "'variable', 1)",
+                (uuid4().hex,),
+            )
+
+    result = _run_alembic(db_path, "downgrade", "-1", check=False)
+
+    assert result.returncode != 0
+    assert "description" in _columns(db_path, table)
+    current = _run_alembic(db_path, "current")
+    assert _DESCRIPTION_REVISION in current.stdout

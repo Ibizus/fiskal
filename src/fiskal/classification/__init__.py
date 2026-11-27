@@ -15,6 +15,7 @@ from fiskal.classification.catalog_service import (
     set_category_active,
     set_cost_center_active,
     update_category,
+    update_cost_center,
 )
 from fiskal.classification.engine import (
     ClassificationResult,
@@ -153,6 +154,7 @@ __all__ = [
     "undo_guided_rows",
     "unpair",
     "update_category",
+    "update_cost_center",
     "update_rule",
     "validate_and_create_rule",
     "validate_transaction",

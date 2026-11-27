@@ -17,7 +17,7 @@ from fiskal.domain.enums import CategoryKind, CategoryNature, IncomeSource
 from fiskal.i18n import translate
 from fiskal.services import list_categories
 from fiskal.ui.forms import FormValueError, format_optional_int, parse_optional_int
-from fiskal.ui.labels import category_label, help_text, status_marker
+from fiskal.ui.labels import category_label, description_text, help_text, status_marker
 from fiskal.ui.messages import flash
 
 _KINDS = [member.value for member in CategoryKind]
@@ -31,6 +31,13 @@ def _spec_from_inputs(prefix: str, category: Category | None) -> CategorySpec | 
         translate("settings.name"),
         value=category_label(category) if category else "",
         key=f"{prefix}_name",
+    )
+    description = st.text_area(
+        translate("settings.description"),
+        value=(category.description or "") if category else "",
+        placeholder=help_text(category.name_key) if category else "",
+        help=translate("settings.description_help"),
+        key=f"{prefix}_description",
     )
     kind = st.selectbox(
         translate("settings.kind"),
@@ -75,6 +82,7 @@ def _spec_from_inputs(prefix: str, category: Category | None) -> CategorySpec | 
         nature=nature,
         income_source=source if kind == CategoryKind.INCOME.value else None,
         default_proration_months=months,
+        description=description,
     )
 
 
@@ -103,9 +111,9 @@ def _render_item(session: Session, category: Category) -> None:
     key = f"settings_cat_{category.id}"
     title = f"{category_label(category)} {status_marker(category.is_active)}"
     with st.expander(title):
-        description = help_text(category.name_key)
-        if description:
-            st.caption(description)
+        shown = description_text(category)
+        if shown:
+            st.caption(shown)
         with st.form(f"{key}_edit"):
             spec = _spec_from_inputs(key, category)
             saved = st.form_submit_button(translate("settings.save"))

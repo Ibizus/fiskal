@@ -24,6 +24,7 @@ from fiskal.domain.enums import CategoryKind, CategoryNature, IncomeSource
 from fiskal.i18n import SUPPORTED_LOCALES, translate
 
 MAX_NAME_LENGTH = 255
+MAX_DESCRIPTION_LENGTH = 1000
 
 
 class CatalogError(Exception):
@@ -53,6 +54,7 @@ class CategorySpec:
     nature: CategoryNature | str
     income_source: IncomeSource | str | None
     default_proration_months: int | None
+    description: str | None = None
 
 
 def _clean_name(name: str) -> str:
@@ -61,6 +63,18 @@ def _clean_name(name: str) -> str:
         raise CatalogError("settings.error.name_empty")
     if len(cleaned) > MAX_NAME_LENGTH:
         raise CatalogError("settings.error.name_too_long", max=MAX_NAME_LENGTH)
+    return cleaned
+
+
+def _clean_description(description: str | None) -> str | None:
+    """Return the trimmed description, or ``None`` when it is blank."""
+    cleaned = (description or "").strip()
+    if not cleaned:
+        return None
+    if len(cleaned) > MAX_DESCRIPTION_LENGTH:
+        raise CatalogError(
+            "settings.error.description_too_long", max=MAX_DESCRIPTION_LENGTH
+        )
     return cleaned
 
 
@@ -133,11 +147,16 @@ def _count(session: Session, statement: Select[Any]) -> int:
     return int(session.execute(statement).scalar_one())
 
 
-def create_cost_center(session: Session, name: str) -> CostCenter:
-    """Create an active cost center the owner named."""
+def create_cost_center(
+    session: Session, name: str, description: str | None = None
+) -> CostCenter:
+    """Create an active cost center the owner named, with an optional description."""
     cleaned = _clean_name(name)
+    cleaned_description = _clean_description(description)
     _ensure_unique(_cost_center_rows(session), cleaned, own_id=None)
-    cost_center = CostCenter(custom_name=cleaned, is_active=True)
+    cost_center = CostCenter(
+        custom_name=cleaned, description=cleaned_description, is_active=True
+    )
     session.add(cost_center)
     session.commit()
     return cost_center
@@ -149,6 +168,23 @@ def rename_cost_center(session: Session, cost_center_id: UUID, name: str) -> Cos
     cleaned = _clean_name(name)
     _ensure_unique(_cost_center_rows(session), cleaned, own_id=cost_center_id)
     _apply_name(cost_center, cleaned)
+    session.commit()
+    return cost_center
+
+
+def update_cost_center(
+    session: Session, cost_center_id: UUID, name: str, description: str | None
+) -> CostCenter:
+    """Rename a cost center and set its own description.
+
+    A blank description clears it, so a seed item shows its default text again.
+    """
+    cost_center = _get_cost_center(session, cost_center_id)
+    cleaned = _clean_name(name)
+    cleaned_description = _clean_description(description)
+    _ensure_unique(_cost_center_rows(session), cleaned, own_id=cost_center_id)
+    _apply_name(cost_center, cleaned)
+    cost_center.description = cleaned_description
     session.commit()
     return cost_center
 
@@ -224,9 +260,11 @@ def _validated_category_fields(
 def create_category(session: Session, spec: CategorySpec) -> Category:
     """Create an active category from ``spec``; nothing is written when invalid."""
     name, kind, nature, source, months = _validated_category_fields(spec)
+    description = _clean_description(spec.description)
     _ensure_unique(_category_rows(session), name, own_id=None)
     category = Category(
         custom_name=name,
+        description=description,
         kind=kind.value,
         nature=nature.value,
         income_source=source,
@@ -261,6 +299,7 @@ def update_category(
     """
     category = _get_category(session, category_id)
     name, kind, nature, source, months = _validated_category_fields(spec)
+    description = _clean_description(spec.description)
     _ensure_unique(_category_rows(session), name, own_id=category_id)
     if kind.value != category.kind and _category_is_used(session, category_id):
         raise CatalogError("settings.error.kind_in_use")
@@ -269,6 +308,7 @@ def update_category(
     category.nature = nature.value
     category.income_source = source
     category.default_proration_months = months
+    category.description = description
     session.commit()
     return category
 
