@@ -420,8 +420,12 @@ thousands of rows. The mode is an alternative view of the Validate page.
   By default an owner rule is created from the same decision, with the
   normalized description as an editable ``contains`` pattern (it must stay part
   of the description) and an amount bound that keeps it on the group's side of
-  the books. The group's rows are then validated by that rule, as any owner
-  rule validates the rows it matches, so they follow later edits of the rule.
+  the books; it sets category and cost center but never a person. The group's
+  rows are then validated by that rule, as any owner rule validates the rows it
+  matches, so they follow later edits of the rule. When the group sets a person
+  (a manual attribution that survives reclassification), its rows are validated
+  by hand instead and the rule still applies to other and future rows, which
+  arrive without a person.
   The rule is applied through the existing rule path, so it also validates
   other pending rows it matches. Unchecking it validates the group's rows by
   hand (manual classifications) without a rule. Before applying, a write-free

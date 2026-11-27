@@ -9,14 +9,18 @@ be undone.
 What a confirmation does to its rows
 ------------------------------------
 Without a rule the rows become validated by hand: ``origin`` manual, no rule
-link, so the owner's decision and a person set on the group stay stable under
-later reclassification. With a rule (the default) the rows are validated by
-that rule, as any owner rule validates the rows it matches: ``origin`` rule,
-``rule_id`` and ``validated_by_rule`` set, so they follow later edits of the
-rule and its person. The rule's pattern must match the group's description, so
-it covers every row of the group. The rule is then applied through the same
-path as any owner rule (``reclassify_pending``), so it also validates *other*
-pending movements that contain its pattern and classifies the next imports.
+link, so the owner's decision stays stable under later reclassification. With
+a rule (the default) the rows are validated by that rule, as any owner rule
+validates the rows it matches: ``origin`` rule, ``rule_id`` and
+``validated_by_rule`` set, so they follow later edits of the rule. The rule
+never carries a person: a person is a manual attribution. When the group sets
+one, its rows are validated by hand (as without a rule) so the person survives
+reclassification, and the rule is still created for the other and the future
+movements, which arrive without a person. The rule's pattern must match the
+group's description, so it covers every row of the group. The rule is then
+applied through the same path as any owner rule (``reclassify_pending``), so it
+also validates *other* pending movements that contain its pattern and
+classifies the next imports.
 ``preview_group`` counts both sets without writing, so the owner sees the real
 number of affected movements before confirming. Either way the rows feed
 history suggestions. Closed months do not exist yet; the pairing guards that
@@ -186,7 +190,7 @@ def _group_rule_spec(
         transaction_type=classification.transaction_type,
         category_id=classification.category_id,
         cost_center_id=classification.cost_center_id,
-        person_id=classification.person_id,
+        person_id=None,
         amount_min_minor=condition.amount_min_minor,
         amount_max_minor=condition.amount_max_minor,
         day_of_month_min=None,
@@ -271,8 +275,9 @@ def confirm_group(
     confirmation is refused instead of applying to a different set.
 
     With ``create_rule`` an owner rule is created from the decision, with
-    ``rule_pattern`` (default: the normalized description) as its pattern, and
-    the group's rows are validated by that rule.
+    ``rule_pattern`` (default: the normalized description) as its pattern and
+    no person; the group's rows are validated by that rule unless the group
+    sets a person, in which case they are validated by hand.
     """
     ids = group_transaction_ids(session, key, held_transaction_ids(session))
     if not ids:
@@ -301,6 +306,7 @@ def confirm_group(
         )
         session.add(action)
         session.flush()
+        validating_rule = rule if classification.person_id is None else None
         action.row_count = validate_pending_in_bulk(
             session,
             ids,
@@ -309,11 +315,12 @@ def confirm_group(
             cost_center_id=classification.cost_center_id,
             person_id=classification.person_id,
             guided_action_id=action.id,
-            rule_id=rule.id if rule is not None else None,
+            rule_id=validating_rule.id if validating_rule is not None else None,
         )
+        if validating_rule is not None:
+            validating_rule.hit_count += action.row_count
+            validating_rule.last_hit_at = datetime.now(UTC)
         if rule is not None:
-            rule.hit_count += action.row_count
-            rule.last_hit_at = datetime.now(UTC)
             reclassify_pending(session)
         session.commit()
     except Exception:

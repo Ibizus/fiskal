@@ -143,8 +143,36 @@ def test_group_rows_are_validated_by_the_created_rule(session: Session) -> None:
     """With a rule, group rows are rule-validated and stay linked to the action."""
     account = _account(session)
     food = _category(session)
+    rows = _bulk_transactions(session, account=account, description="shop", count=ROWS)
+
+    outcome = confirm_group(
+        session, GroupKey("shop", EXPENSE), _classification(food), create_rule=True
+    )
+
+    assert outcome.rule is not None
+    assert outcome.rule.person_id is None
+    for row in _refresh(session, rows):
+        assert row.status == TransactionStatus.VALIDATED.value
+        assert row.origin == ClassificationOrigin.RULE.value
+        assert row.rule_id == outcome.rule.id
+        assert row.validated_by_rule
+        assert row.guided_action_id == outcome.action.id
+        assert row.category_id == food.id
+    session.refresh(outcome.rule)
+    assert outcome.rule.hit_count == ROWS
+    assert outcome.rule_validated_count == 0
+
+
+def test_group_with_person_is_validated_by_hand_and_rule_has_no_person(
+    session: Session,
+) -> None:
+    """A group person is manual: its rows skip the rule, which carries no person."""
+    account = _account(session)
+    food = _category(session)
+    other = _category(session, key="category.other")
     person = _person(session)
     rows = _bulk_transactions(session, account=account, description="shop", count=ROWS)
+    outside = _transaction(session, account=account, description="shop online")
 
     outcome = confirm_group(
         session,
@@ -153,20 +181,34 @@ def test_group_rows_are_validated_by_the_created_rule(session: Session) -> None:
         create_rule=True,
     )
 
-    assert outcome.rule is not None
+    rule = outcome.rule
+    assert rule is not None
+    assert rule.person_id is None
+    assert outcome.action.rule_id == rule.id
+    assert outcome.rule_validated_count == 1
+    (outside,) = _refresh(session, [outside])
+    assert outside.validated_by_rule
+    assert outside.person_id is None
     for row in _refresh(session, rows):
         assert row.status == TransactionStatus.VALIDATED.value
-        assert row.origin == ClassificationOrigin.RULE.value
-        assert row.rule_id == outcome.rule.id
-        assert row.validated_by_rule
+        assert row.origin == ClassificationOrigin.MANUAL.value
+        assert row.rule_id is None
+        assert not row.validated_by_rule
+        assert row.person_id == person.id
         assert row.guided_action_id == outcome.action.id
+
+    spec = spec_from_rule(rule)
+    update_rule(
+        session, rule.id, type(spec)(**{**spec.__dict__, "category_id": other.id})
+    )
+    reclassify_pending(session)
+    for row in _refresh(session, rows):
         assert row.category_id == food.id
         assert row.person_id == person.id
-    session.refresh(outcome.rule)
-    assert outcome.rule.hit_count == ROWS
-    assert outcome.rule_validated_count == 0
-    reclassify_pending(session)
-    assert {row.person_id for row in _refresh(session, rows)} == {person.id}
+
+    undone = undo_guided_action(session, outcome.action.id)
+    assert (undone.returned_count, undone.rule_deactivated) == (ROWS, True)
+    assert _statuses(_refresh(session, rows)) == {TransactionStatus.PENDING.value}
 
 
 def test_rule_pattern_must_be_part_of_the_group_description(
@@ -309,13 +351,9 @@ def test_group_rows_follow_the_rule_when_it_is_later_edited(
     account = _account(session)
     food = _category(session)
     other = _category(session, key="category.other")
-    person = _person(session)
     rows = _bulk_transactions(session, account=account, description="shop", count=2)
     outcome = confirm_group(
-        session,
-        GroupKey("shop", EXPENSE),
-        _classification(food, person_id=person.id),
-        create_rule=True,
+        session, GroupKey("shop", EXPENSE), _classification(food), create_rule=True
     )
     assert outcome.rule is not None
 
@@ -323,14 +361,13 @@ def test_group_rows_follow_the_rule_when_it_is_later_edited(
     update_rule(
         session,
         outcome.rule.id,
-        type(spec)(**{**spec.__dict__, "category_id": other.id, "person_id": None}),
+        type(spec)(**{**spec.__dict__, "category_id": other.id}),
     )
     reclassify_pending(session)
 
     for row in _refresh(session, rows):
         assert row.status == TransactionStatus.VALIDATED.value
         assert row.category_id == other.id
-        assert row.person_id is None
         assert row.origin == ClassificationOrigin.RULE.value
         assert row.guided_action_id == outcome.action.id
     assert count_guided_actions(session) == 1

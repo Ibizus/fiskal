@@ -177,14 +177,17 @@ movements the rule would validate. Confirming:
   description). The group's movements are validated by that rule, like any
   movement one of your rules validates, so they follow the rule if you edit it
   later in Settings. The rule is limited to the same side of the books
-  (expenses or income), validates other pending movements that contain the
-  pattern and classifies future imports;
+  (expenses or income), sets category and cost center only (never a person),
+  validates other pending movements that contain the pattern and classifies
+  future imports;
 - with **Also create a rule for this description** unchecked, validates only
   the movements of the group, by hand: they become manual classifications and
   never change on their own;
-- applies the chosen person to every movement. Without a rule it is a manual
-  attribution that later reclassification never clears; with a rule the rule
-  carries the person.
+- applies the chosen person to every movement as a manual attribution, which
+  later reclassification never clears. When a person is set, the group's
+  movements are validated by hand even if the rule is created; the rule still
+  validates the other and future matching movements, which arrive without a
+  person.
 
 Amounts are not used to split a group. When the amounts in a group differ widely
 (the largest is at least three times the smallest) the group shows a warning
